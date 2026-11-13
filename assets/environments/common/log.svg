@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+<defs>
+
+</defs>
+<ellipse cx="250" cy="508" rx="215" ry="9" fill="#1a1512" fill-opacity="0.34"/>
+<ellipse cx="250" cy="508" rx="150.5" ry="5" fill="#120e0b" fill-opacity="0.34"/>
+<path d="M30,438 L120,406 L250,418 L360,432 L440,414 L480,438 L470,498 L360,508 L230,514 L110,498 L34,482 Z" fill="#5b4530"/>
+<path d="M30,438 L120,406 L250,418 L360,432 L440,414 L480,438 L468,450 L352,446 L238,442 L116,438 L36,458 Z" fill="#7c6042" fill-opacity="0.9"/>
+<path d="M34,482 L110,498 L230,514 L360,508 L470,498 L480,486 L360,520 L228,524 L108,510 Z" fill="#362619" fill-opacity="0.5"/>
+<path d="M44,438 Q200,444.64673087509124 466,436" fill="none" stroke="#291c12" stroke-width="1.4" stroke-opacity="0.28" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M47,445 Q200,441.47392223019455 466,443" fill="none" stroke="#291c12" stroke-width="1.3" stroke-opacity="0.28" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M50,452 Q200,456.80595159044293 466,450" fill="none" stroke="#291c12" stroke-width="2.2" stroke-opacity="0.28" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M53,459 Q200,466.8887835427843 466,457" fill="none" stroke="#291c12" stroke-width="2" stroke-opacity="0.28" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M56,466 Q200,469.3200764558807 466,464" fill="none" stroke="#291c12" stroke-width="2" stroke-opacity="0.28" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M59,473 Q200,474.2767845228522 466,471" fill="none" stroke="#291c12" stroke-width="1.9" stroke-opacity="0.28" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M62,480 Q200,476.86620078237763 466,478" fill="none" stroke="#291c12" stroke-width="1.3" stroke-opacity="0.28" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M65,487 Q200,493.28941064786466 466,485" fill="none" stroke="#291c12" stroke-width="2.2" stroke-opacity="0.28" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M68,494 Q200,501.5427812809234 466,492" fill="none" stroke="#291c12" stroke-width="2.1" stroke-opacity="0.28" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M71,501 Q200,503.63444056490783 466,499" fill="none" stroke="#291c12" stroke-width="1.4" stroke-opacity="0.28" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M300,426 L330,386 L352,392 L330,434 Z" fill="#5b4530"/>
+<path d="M330,388 L352,392" fill="none" stroke="#7c6042" stroke-width="2.4" stroke-opacity="0.5" stroke-linecap="round" stroke-linejoin="round"/>
+<ellipse cx="472" cy="460" rx="27" ry="41" fill="#8a6b48"/>
+<ellipse cx="472" cy="460" rx="21" ry="33" fill="#a8895f" fill-opacity="0.9"/>
+<ellipse cx="472" cy="460" rx="13.4" ry="21.4" fill="none" stroke="#6f5236" stroke-width="1.6" opacity="0.55"/>
+<ellipse cx="472" cy="460" rx="9.8" ry="15.8" fill="none" stroke="#6f5236" stroke-width="1.6" opacity="0.55"/>
+<ellipse cx="472" cy="460" rx="6.199999999999999" ry="10.200000000000003" fill="none" stroke="#6f5236" stroke-width="1.6" opacity="0.55"/>
+<ellipse cx="467" cy="454" rx="8" ry="12" fill="#5c4028" fill-opacity="0.5"/>
+<ellipse cx="375.4" cy="421.8" rx="20.3" ry="6.1" fill="#40502f" fill-opacity="0.55"/>
+<ellipse cx="347.3" cy="424.4" rx="19.4" ry="4.7" fill="#40502f" fill-opacity="0.55"/>
+<ellipse cx="322.7" cy="421.7" rx="16.9" ry="6.9" fill="#40502f" fill-opacity="0.55"/>
+<ellipse cx="382.3" cy="426.6" rx="16.8" ry="3.9" fill="#40502f" fill-opacity="0.55"/>
+<ellipse cx="365.5" cy="418.7" rx="13.8" ry="6.4" fill="#40502f" fill-opacity="0.55"/>
+<ellipse cx="242.3" cy="426.1" rx="11.4" ry="6" fill="#40502f" fill-opacity="0.55"/>
+<ellipse cx="404" cy="424" rx="20" ry="5.3" fill="#40502f" fill-opacity="0.55"/>
+<ellipse cx="324.6" cy="419.6" rx="13" ry="6.7" fill="#40502f" fill-opacity="0.55"/>
+<ellipse cx="301" cy="432.1" rx="13.3" ry="4" fill="#40502f" fill-opacity="0.55"/>
+<path d="M40,440 L120,408 L250,420 L360,434 L440,416 L476,440 L479,448 L443,424 L363,442 L253,428 L123,416 L43,448 Z" fill="#e3c7a2" fill-opacity="0.45"/>
+</svg>

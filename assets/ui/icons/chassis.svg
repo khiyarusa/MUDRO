@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <g fill="none" stroke="#1a1512" stroke-width="9" stroke-linecap="round" stroke-linejoin="round" opacity="0.35" transform="translate(2.6 3.4)">
+    <path d="M22 46 H106" fill="none" stroke="#1a1512" stroke-width="12"/>
+    <path d="M22 82 H106" fill="none" stroke="#1a1512" stroke-width="12"/>
+    <path d="M40 46 V82" fill="none" stroke="#1a1512" stroke-width="9"/>
+    <path d="M64 46 V82" fill="none" stroke="#1a1512" stroke-width="9"/>
+    <path d="M88 46 V82" fill="none" stroke="#1a1512" stroke-width="9"/>
+    <path d="M24 38 V46" fill="none" stroke="#1a1512" stroke-width="8"/>
+    <path d="M100 38 V46" fill="none" stroke="#1a1512" stroke-width="8"/>
+    <path d="M24 82 V90" fill="none" stroke="#1a1512" stroke-width="8"/>
+    <path d="M100 82 V90" fill="none" stroke="#1a1512" stroke-width="8"/>
+    <circle cx="24" cy="30" r="8" fill="none" stroke="#1a1512" stroke-width="7"/>
+    <circle cx="100" cy="30" r="8" fill="none" stroke="#1a1512" stroke-width="7"/>
+    <circle cx="24" cy="98" r="8" fill="none" stroke="#1a1512" stroke-width="7"/>
+    <circle cx="100" cy="98" r="8" fill="none" stroke="#1a1512" stroke-width="7"/>
+  </g>
+  <g fill="none" stroke="#f4ede1" stroke-width="9" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M22 46 H106" fill="none" stroke="#f4ede1" stroke-width="12"/>
+    <path d="M22 82 H106" fill="none" stroke="#f4ede1" stroke-width="12"/>
+    <path d="M40 46 V82" fill="none" stroke="#f4ede1" stroke-width="9"/>
+    <path d="M64 46 V82" fill="none" stroke="#f4ede1" stroke-width="9"/>
+    <path d="M88 46 V82" fill="none" stroke="#f4ede1" stroke-width="9"/>
+    <path d="M24 38 V46" fill="none" stroke="#f4ede1" stroke-width="8"/>
+    <path d="M100 38 V46" fill="none" stroke="#f4ede1" stroke-width="8"/>
+    <path d="M24 82 V90" fill="none" stroke="#f4ede1" stroke-width="8"/>
+    <path d="M100 82 V90" fill="none" stroke="#f4ede1" stroke-width="8"/>
+    <circle cx="24" cy="30" r="8" fill="none" stroke="#f4ede1" stroke-width="7"/>
+    <circle cx="100" cy="30" r="8" fill="none" stroke="#f4ede1" stroke-width="7"/>
+    <circle cx="24" cy="98" r="8" fill="none" stroke="#f4ede1" stroke-width="7"/>
+    <circle cx="100" cy="98" r="8" fill="none" stroke="#f4ede1" stroke-width="7"/>
+  </g>
+</svg>

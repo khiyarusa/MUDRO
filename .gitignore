@@ -1,0 +1,20 @@
+﻿# Godot editor cache and imported binaries
+.godot/
+Godot/
+
+# Local runtime data (the engine falls back to a relative user:// dir when
+# APPDATA is unavailable, which writes here)
+MUDRO/
+
+# Everything under local-builds is machine-local: APK, screenshots, previews,
+# logs and the scratch art pipeline. The build report is the only exception.
+local-builds/*
+!local-builds/reports/
+!local-builds/.gdignore
+
+# Temporary / local
+*.tmp
+*.bak
+*.log
+.DS_Store
+Thumbs.db

@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <g fill="none" stroke="#1a1512" stroke-width="9" stroke-linecap="round" stroke-linejoin="round" opacity="0.35" transform="translate(2.6 3.4)">
+    <circle cx="64" cy="64" r="42" fill="none" stroke="#1a1512" stroke-width="9"/>
+    <circle cx="64" cy="35" r="6" fill="none" stroke="#1a1512" stroke-width="5"/>
+    <circle cx="91.6" cy="55" r="6" fill="none" stroke="#1a1512" stroke-width="5"/>
+    <circle cx="81.1" cy="87.5" r="6" fill="none" stroke="#1a1512" stroke-width="5"/>
+    <circle cx="46.9" cy="87.5" r="6" fill="none" stroke="#1a1512" stroke-width="5"/>
+    <circle cx="36.4" cy="55" r="6" fill="none" stroke="#1a1512" stroke-width="5"/>
+    <circle cx="64" cy="64" r="14" fill="none" stroke="#1a1512" stroke-width="9"/>
+  </g>
+  <g fill="none" stroke="#f4ede1" stroke-width="9" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="64" cy="64" r="42" fill="none" stroke="#f4ede1" stroke-width="9"/>
+    <circle cx="64" cy="35" r="6" fill="none" stroke="#f4ede1" stroke-width="5"/>
+    <circle cx="91.6" cy="55" r="6" fill="none" stroke="#f4ede1" stroke-width="5"/>
+    <circle cx="81.1" cy="87.5" r="6" fill="none" stroke="#f4ede1" stroke-width="5"/>
+    <circle cx="46.9" cy="87.5" r="6" fill="none" stroke="#f4ede1" stroke-width="5"/>
+    <circle cx="36.4" cy="55" r="6" fill="none" stroke="#f4ede1" stroke-width="5"/>
+    <circle cx="64" cy="64" r="14" fill="none" stroke="#f4ede1" stroke-width="9"/>
+  </g>
+</svg>
