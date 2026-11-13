@@ -203,6 +203,9 @@ func _build_decoration() -> void:
 		"quarry":
 			back_kinds = PackedStringArray(["quarry_block", "snow_rock", "rock_a"])
 			front_kinds = PackedStringArray(["snow_rock", "rock_b"])
+		"black_ridge":
+			back_kinds = PackedStringArray(["ash_rock", "ore_cart", "pipe_stack", "floodlight"])
+			front_kinds = PackedStringArray(["ash_rock", "industrial_barrier"])
 	var rng := RandomNumberGenerator.new()
 	rng.seed = stage.seed_value * 7 + 13
 	var spacing: float = 7.5 / density
@@ -246,6 +249,16 @@ func _decor_scale(kind: String) -> float:
 			return 0.62
 		"log":
 			return 0.8
+		"ash_rock":
+			return 0.8
+		"ore_cart":
+			return 0.85
+		"pipe_stack":
+			return 0.8
+		"floodlight":
+			return 0.9
+		"industrial_barrier":
+			return 0.85
 		_:
 			return 0.8
 
@@ -270,6 +283,9 @@ func _make_decor(kind: String, env: String) -> Sprite2D:
 func _build_obstacles() -> void:
 	for entry: Dictionary in stage.obstacles:
 		var kind: String = String(entry.get("kind", "rock_a"))
+		if kind == "steel_bridge":
+			_build_bridge(entry)
+			continue
 		var x_m: float = float(entry.get("x", 0.0))
 		var scale_v: float = float(entry.get("scale", 1.0))
 		var rot: float = float(entry.get("rot", 0.0))
@@ -293,10 +309,17 @@ func _build_obstacles() -> void:
 			body.position = pos
 			var col := CollisionShape2D.new()
 			var r: float = _obstacle_radius(kind) * scale_v * Units.PPM
-			if kind == "log":
-				var box := RectangleShape2D.new()
-				box.size = Vector2(r * 2.6, r * 1.0)
-				col.shape = box
+			var box: Vector2 = _obstacle_box(kind) * scale_v
+			if box.x > 0.0:
+				var rect := RectangleShape2D.new()
+				rect.size = box * Units.PPM
+				col.shape = rect
+				col.position = Vector2(0, -box.y * 0.5 * Units.PPM)
+				col.rotation = rot
+			elif kind == "log":
+				var lb := RectangleShape2D.new()
+				lb.size = Vector2(r * 2.6, r * 1.0)
+				col.shape = lb
 				col.position = Vector2(0, -r * 0.45)
 				col.rotation = rot
 			else:
@@ -308,8 +331,116 @@ func _build_obstacles() -> void:
 			add_child(body)
 			_obstacles.append({
 				"rect": Rect2(pos + Vector2(-r, -r * 1.4), Vector2(r * 2.0, r * 1.7)),
-				"surface": "rock",
+				"surface": "rock" if kind != "ash_rock" else "ash",
 			})
+
+## A bridge is a real platform: the collider top is the deck surface, so the car
+## drives on it and the gap below stays a gap.
+func _build_bridge(entry: Dictionary) -> void:
+	var x_m: float = float(entry.get("x", 0.0))
+	var span: float = float(entry.get("span_m", 12.0))
+	# The deck height is authored absolutely: a bridge spans a gap, it is not "the
+	# ground plus an offset" (the ground under a bridge is the bottom of the gap).
+	var deck_y: float = float(entry.get("deck_y", elevation_m(x_m) + float(entry.get("y_offset", 0.0))))
+	var deck_pos := Vector2(x_m * Units.PPM, -deck_y * Units.PPM)
+	var tex: Texture2D = ArtLib.decor(stage.environment, "steel_bridge")
+	if tex == null:
+		tex = ArtLib.decor("black_ridge", "steel_bridge")
+	if OS.get_cmdline_args().has("--uidiag"):
+		print("[bridge] tex=%s deck=%.1f span=%.1f x=%.1f" % [str(tex), deck_y, span, x_m])
+	if tex != null:
+		var sprite := Sprite2D.new()
+		sprite.texture = tex
+		sprite.centered = false
+		var sx: float = span * Units.PPM / maxf(float(tex.get_width()), 1.0)
+		sprite.scale = Vector2(sx, sx)
+		# The artwork draws the deck along its bottom edge and the truss above it.
+		# Flipping it puts the deck on top and hangs the truss into the gap, which is
+		# both readable and does not cover the car.
+		sprite.flip_v = true
+		sprite.position = Vector2(deck_pos.x - span * Units.PPM * 0.5, deck_pos.y)
+		sprite.z_index = 1
+		sprite.modulate = Color(1.35, 1.36, 1.38, 1.0)
+		add_child(sprite)
+
+	# Readable structure: the authored texture is low-contrast dark steel, so a lighter
+	# truss is drawn from the span geometry itself, hanging under the deck where
+	# nothing else competes with it.
+	var truss := Line2D.new()
+	truss.name = "BridgeTruss"
+	truss.width = 3.5
+	truss.default_color = Color(0.80, 0.82, 0.84, 1.0)
+	truss.z_index = 1
+	var half: float = span * Units.PPM * 0.5
+	var x0: float = deck_pos.x - half
+	var top_y: float = deck_pos.y + 4.0
+	var bot_y: float = deck_pos.y + 1.9 * Units.PPM
+	var panels: int = maxi(int(span / 3.0), 2)
+	truss.add_point(Vector2(x0, top_y))
+	truss.add_point(Vector2(x0 + span * Units.PPM, top_y))
+	for i: int in range(panels + 1):
+		var px: float = x0 + span * Units.PPM * float(i) / float(panels)
+		truss.add_point(Vector2(px, top_y))
+		truss.add_point(Vector2(px, bot_y))
+	truss.add_point(Vector2(x0, bot_y))
+	truss.add_point(Vector2(x0 + span * Units.PPM, bot_y))
+	for i: int in range(panels):
+		var a: float = x0 + span * Units.PPM * float(i) / float(panels)
+		var b: float = x0 + span * Units.PPM * float(i + 1) / float(panels)
+		truss.add_point(Vector2(a, top_y))
+		truss.add_point(Vector2(a, bot_y))
+		truss.add_point(Vector2(a, bot_y))
+		truss.add_point(Vector2(b, top_y))
+	add_child(truss)
+
+	# Guard rail above the deck, in the region's restrained amber. This is what makes
+	# the span read as a bridge at a glance, whatever the texture does.
+	var rail := Line2D.new()
+	rail.name = "BridgeRail"
+	rail.width = 4.5
+	rail.default_color = Color(1.0, 0.74, 0.30, 1.0)
+	rail.z_index = 4
+	var rail_y: float = deck_pos.y - 0.95 * Units.PPM
+	rail.add_point(Vector2(x0, rail_y))
+	rail.add_point(Vector2(x0 + span * Units.PPM, rail_y))
+	for i: int in range(panels + 1):
+		var rx: float = x0 + span * Units.PPM * float(i) / float(panels)
+		rail.add_point(Vector2(rx, rail_y))
+		rail.add_point(Vector2(rx, rail_y))
+		rail.add_point(Vector2(rx, rail_y))
+		rail.add_point(Vector2(rx, deck_pos.y - 4.0))
+	add_child(rail)
+
+	var body := StaticBody2D.new()
+	body.collision_layer = 4
+	body.collision_mask = 0
+	body.position = deck_pos
+	var col := CollisionShape2D.new()
+	var rect := RectangleShape2D.new()
+	rect.size = Vector2(span * Units.PPM, 0.5 * Units.PPM)
+	col.shape = rect
+	col.position = Vector2(0, 0.25 * Units.PPM)
+	body.add_child(col)
+	add_child(body)
+	_obstacles.append({
+		"rect": Rect2(deck_pos - Vector2(span * Units.PPM * 0.5, 0.2 * Units.PPM), Vector2(span * Units.PPM, 0.8 * Units.PPM)),
+		"surface": "steel",
+	})
+
+func _obstacle_box(kind: String) -> Vector2:
+	match kind:
+		"industrial_barrier":
+			return Vector2(2.1, 1.05)
+		"ore_cart":
+			return Vector2(2.0, 1.6)
+		"pipe_stack":
+			return Vector2(2.3, 1.4)
+		"quarry_block":
+			return Vector2(1.5, 1.5)
+		"floodlight":
+			return Vector2(0.3, 2.6)
+		_:
+			return Vector2.ZERO
 
 func _obstacle_radius(kind: String) -> float:
 	match kind:

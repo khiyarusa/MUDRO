@@ -63,20 +63,47 @@ func _build() -> void:
 	], str(SettingsService.quality), _on_quality))
 
 	_section(Loc.t("settings_controls"))
+	_content.add_child(_option_row(Loc.t("settings_preset"), [
+		{"label": Loc.t("layout_buttons"), "value": "buttons"},
+		{"label": Loc.t("layout_slider"), "value": "slider"},
+		{"label": Loc.t("layout_pedals"), "value": "pedals"},
+	], SettingsService.control_preset, _on_preset))
+	_content.add_child(_option_row(Loc.t("settings_side"), [
+		{"label": Loc.t("layout_right"), "value": "right"},
+		{"label": Loc.t("layout_left"), "value": "left"},
+	], "left" if SettingsService.control_left_handed else "right", _on_side))
 	_content.add_child(_slider_row(Loc.t("settings_size"), "control_scale", inverse_lerp(0.8, 1.35, SettingsService.control_scale)))
 	_content.add_child(_slider_row(Loc.t("settings_opacity"), "control_opacity", SettingsService.control_opacity))
+	_content.add_child(_slider_row(Loc.t("settings_edge_margin"), "control_margin", SettingsService.control_margin / 48.0))
+	_content.add_child(_slider_row(Loc.t("settings_slider_sensitivity"), "slider_sensitivity", inverse_lerp(0.55, 1.8, SettingsService.slider_sensitivity)))
+	_content.add_child(_slider_row(Loc.t("settings_slider_release"), "slider_release", inverse_lerp(1.0, 12.0, SettingsService.slider_release)))
+	_content.add_child(_slider_row(Loc.t("settings_touch_margin"), "touch_hit_margin", SettingsService.touch_hit_margin / 0.45))
+	_content.add_child(_toggle_row(Loc.t("settings_show_clutch"), SettingsService.show_clutch, _on_toggle.bind("show_clutch")))
+	_content.add_child(_toggle_row(Loc.t("settings_show_handbrake"), SettingsService.show_handbrake, _on_toggle.bind("show_handbrake")))
+	_content.add_child(_toggle_row(Loc.t("settings_show_winch"), SettingsService.show_winch, _on_toggle.bind("show_winch")))
+	_content.add_child(_toggle_row(Loc.t("settings_show_recover"), SettingsService.show_recover, _on_toggle.bind("show_recover")))
 	_content.add_child(_slider_row(Loc.t("settings_shake"), "shake", SettingsService.shake / 1.5))
 	_content.add_child(_toggle_row(Loc.t("settings_haptics"), SettingsService.haptics, _on_haptics))
+	var edit_row := UIKit.hbox(10)
+	var edit := UIKit.button(Loc.t("settings_edit_layout"), true, "settings")
+	edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	edit.pressed.connect(_open_layout_editor)
+	edit_row.add_child(edit)
+	var reset_layout := UIKit.button(Loc.t("settings_reset_layout"), false, "reset")
+	reset_layout.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	reset_layout.pressed.connect(func() -> void:
+		SettingsService.reset_control_layout()
+		_build()
+		UIKit.toast(self, Loc.t("toast_saved")))
+	edit_row.add_child(reset_layout)
+	_content.add_child(edit_row)
 
 	_section(Loc.t("settings_transmission"))
-	_content.add_child(_option_row(Loc.t("settings_transmission"), [
-		{"label": Loc.t("settings_manual"), "value": "manual"},
-		{"label": Loc.t("settings_auto"), "value": "auto"},
-	], SettingsService.transmission, _on_transmission))
 	_content.add_child(_option_row(Loc.t("settings_clutch"), [
 		{"label": Loc.t("settings_auto_clutch"), "value": "assist"},
 		{"label": Loc.t("settings_manual_clutch"), "value": "manual"},
 	], SettingsService.clutch, _on_clutch))
+	_content.add_child(UIKit.paragraph(Loc.t("settings_transmission_note"), 16, UIKit.MUTED))
 
 	_content.add_child(UIKit.spacer(8))
 	var reset := UIKit.button(Loc.t("settings_reset"), false, "restart")
@@ -160,6 +187,14 @@ func _apply_live(key: String, v: float) -> void:
 			SettingsService.control_scale = lerpf(0.8, 1.35, v)
 		"control_opacity":
 			SettingsService.control_opacity = v
+		"control_margin":
+			SettingsService.control_margin = v * 48.0
+		"slider_sensitivity":
+			SettingsService.slider_sensitivity = lerpf(0.55, 1.8, v)
+		"slider_release":
+			SettingsService.slider_release = lerpf(1.0, 12.0, v)
+		"touch_hit_margin":
+			SettingsService.touch_hit_margin = v * 0.45
 		"shake":
 			SettingsService.shake = v * 1.5
 	SettingsService.apply_audio()
@@ -176,6 +211,25 @@ func _on_quality(value: String) -> void:
 func _on_transmission(value: String) -> void:
 	SettingsService.set_value("transmission", value)
 	_build()
+
+func _on_preset(value: String) -> void:
+	SettingsService.set_value("control_preset", value)
+	_build()
+
+func _on_side(value: String) -> void:
+	SettingsService.set_value("control_left_handed", value == "left")
+	_build()
+
+func _on_toggle(value: bool, key: String) -> void:
+	SettingsService.set_value(key, value)
+	_build()
+
+func _open_layout_editor() -> void:
+	var editor := ControlLayoutEditor.new()
+	add_child(editor)
+	editor.closed.connect(func() -> void:
+		editor.queue_free()
+		_build())
 
 func _on_clutch(value: String) -> void:
 	SettingsService.set_value("clutch", value)

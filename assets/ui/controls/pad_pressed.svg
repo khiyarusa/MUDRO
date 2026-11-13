@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+<defs><radialGradient id="rg1" gradientUnits="userSpaceOnUse" cx="128" cy="120" r="132"><stop offset="0" stop-color="#040505" stop-opacity="0.58"/><stop offset="0.55" stop-color="#040505" stop-opacity="0.44"/><stop offset="1" stop-color="#040505" stop-opacity="0.3"/></radialGradient><radialGradient id="rg2" gradientUnits="userSpaceOnUse" cx="128" cy="128" r="94.5"><stop offset="0" stop-color="#d99a45" stop-opacity="0"/><stop offset="0.5" stop-color="#d99a45" stop-opacity="0"/><stop offset="0.76" stop-color="#d99a45" stop-opacity="0.09"/><stop offset="0.9" stop-color="#d99a45" stop-opacity="0.3"/><stop offset="0.97" stop-color="#d99a45" stop-opacity="0.42"/><stop offset="1" stop-color="#d99a45" stop-opacity="0"/></radialGradient><linearGradient id="lg3" gradientUnits="userSpaceOnUse" x1="0" y1="33.5" x2="0" y2="152"><stop offset="0" stop-color="#000000" stop-opacity="0.55"/><stop offset="0.4" stop-color="#000000" stop-opacity="0.22"/><stop offset="0.7" stop-color="#000000" stop-opacity="0.02"/><stop offset="1" stop-color="#000000" stop-opacity="0"/></linearGradient><radialGradient id="rg4" gradientUnits="userSpaceOnUse" cx="128" cy="128" r="62"><stop offset="0" stop-color="#d99a45" stop-opacity="0.1"/><stop offset="0.55" stop-color="#b07a33" stop-opacity="0.05"/><stop offset="1" stop-color="#b07a33" stop-opacity="0"/></radialGradient></defs>
+<circle cx="128" cy="128" r="94.5" fill="url(#rg1)"/>
+<circle cx="128" cy="128" r="94.5" fill="url(#rg2)"/>
+<circle cx="128" cy="128" r="94.5" fill="url(#lg3)"/>
+<circle cx="128" cy="128" r="93.2" fill="none" stroke="#d99a45" stroke-width="1.2" stroke-opacity="0.55"/>
+<circle cx="128" cy="128" r="86" fill="none" stroke="#b07a33" stroke-width="3.2" stroke-opacity="0.2"/>
+<circle cx="128" cy="128" r="62" fill="url(#rg4)"/>
+</svg>

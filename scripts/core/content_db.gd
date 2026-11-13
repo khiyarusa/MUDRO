@@ -40,6 +40,12 @@ func _build_surfaces() -> void:
 		Color(0.66, 0.80, 0.89), Color(0.28, 0.40, 0.50), "snow", "skid", 0.7)
 	_add_surface("water", "آب", "Water", 0.22, 0.15, 0.260, 0.10,
 		Color(0.25, 0.40, 0.42), Color(0.07, 0.14, 0.16), "water", "mud_loop", 0.0)
+	_add_surface("ash", "خاکستر", "Ash", 0.58, 0.42, 0.105, 0.30,
+		Color(0.36, 0.35, 0.33), Color(0.13, 0.13, 0.13), "dust", "tire_roll_gravel", 0.0)
+	_add_surface("scree", "سنگ‌ریزه", "Scree", 0.66, 0.50, 0.075, 0.55,
+		Color(0.32, 0.32, 0.31), Color(0.11, 0.11, 0.11), "dust", "tire_roll_rock", 0.0)
+	_add_surface("steel", "عرشه فولادی", "Steel deck", 0.72, 0.58, 0.030, 0.18,
+		Color(0.30, 0.31, 0.32), Color(0.12, 0.12, 0.13), "dust", "bridge_rumble", 0.0)
 
 func _add_surface(id: String, fa: String, en: String, peak: float, slide: float,
 		rr: float, sink: float, top: Color, deep: Color, particles: String,
@@ -105,6 +111,24 @@ func _build_vehicles() -> void:
 		PackedFloat32Array([800, 1500, 2500, 3500, 4500, 5500, 6500, 7000]),
 		PackedFloat32Array([95, 132, 160, 175, 178, 166, 138, 92]))
 	buggy.gearbox = _gearbox(PackedFloat32Array([3.9, 2.45, 1.75, 1.30, 1.00]), 3.4, 4.3, 0.90, 0.16)
+	buggy.transmissions = [
+		_trans("buggy_seq5", "ترتیبی مسابقه", "5-speed sequential", TransmissionProfile.Kind.MANUAL_SEQ,
+			PackedFloat32Array([3.90, 2.45, 1.75, 1.30, 1.00]), 3.4, 4.3, 0.90, 0.16),
+		_trans("buggy_h5", "دستی H", "5-speed H-pattern", TransmissionProfile.Kind.MANUAL_H,
+			PackedFloat32Array([3.90, 2.45, 1.75, 1.30, 1.00]), 3.4, 4.3, 0.90, 0.20),
+	]
+	# A dog box: clutchless upshifts are the whole point, and it is not smooth.
+	buggy.transmissions[0].requires_clutch = false
+	buggy.transmissions[0].synchro = 0.25
+	buggy.transmissions[0].max_torque_nm = 320.0
+	buggy.transmissions[1].synchro = 0.7
+	buggy.transmissions[1].max_torque_nm = 300.0
+	buggy.stock_transmission = "buggy_seq5"
+	buggy.transfer_ids = PackedStringArray()
+	buggy.transfer_ratios = PackedFloat32Array()
+	buggy.diff_modes = PackedStringArray(["open", "lsd"])
+	buggy.tire_options = _tire_options()
+	buggy.suspension_options = _susp_options()
 	buggy.tire_front = _tire(0.33, 0.22, 16.0, 1.02, 0.030, 0.15)
 	buggy.tire_rear = _tire(0.34, 0.26, 18.0, 1.05, 0.032, 0.15)
 	buggy.suspension = _susp(0.30, 0.30, 0.12, 21000.0, 19000.0, 1500.0, 1900.0, 1400.0, 1800.0, 70000.0)
@@ -153,6 +177,31 @@ func _build_vehicles() -> void:
 	ranger.engine.turbo_rpm = 2200.0
 	ranger.engine.turbo_width = 1500.0
 	ranger.gearbox = _gearbox(PackedFloat32Array([4.20, 2.40, 1.55, 1.15, 0.85]), 4.0, 3.9, 0.89, 0.24)
+	ranger.transmissions = [
+		_trans("ranger_h5", "دستی H پنج‌سرعته", "5-speed H-pattern manual", TransmissionProfile.Kind.MANUAL_H,
+			PackedFloat32Array([4.20, 2.40, 1.55, 1.15, 0.85]), 4.0, 3.9, 0.89, 0.24),
+		_trans("ranger_auto6", "اتوماتیک شش‌سرعته", "6-speed automatic", TransmissionProfile.Kind.AUTOMATIC,
+			PackedFloat32Array([4.10, 2.35, 1.55, 1.18, 0.95, 0.78]), 3.8, 3.55, 0.87, 0.40),
+	]
+	ranger.transmissions[0].synchro = 0.85
+	ranger.transmissions[0].max_torque_nm = 560.0
+	ranger.transmissions[1].clutch_type = "torque_converter"
+	ranger.transmissions[1].converter_stall_mult = 1.75
+	ranger.transmissions[1].converter_lock_rpm = 1300.0
+	ranger.transmissions[1].auto_upshift_fraction = 0.70
+	ranger.transmissions[1].auto_downshift_fraction = 0.30
+	ranger.transmissions[1].kickdown_rpm_fraction = 0.55
+	ranger.transmissions[1].max_torque_nm = 620.0
+	ranger.stock_transmission = "ranger_h5"
+	ranger.transfer_ids = PackedStringArray(["2H", "4H", "4L"])
+	ranger.transfer_ratios = PackedFloat32Array([1.0, 1.0, 2.48])
+	ranger.default_transfer = "4H"
+	ranger.diff_modes = PackedStringArray(["open", "lsd", "locked"])
+	ranger.tire_options = _tire_options()
+	ranger.suspension_options = _susp_options()
+	ranger.has_winch = true
+	ranger.winch_force_n = 16000.0
+	ranger.winch_rope_m = 20.0
 	ranger.tire_front = _tire(0.39, 0.25, 28.0, 1.00, 0.028, 0.14)
 	ranger.tire_rear = _tire(0.39, 0.25, 28.0, 1.00, 0.028, 0.14)
 	ranger.suspension = _susp(0.26, 0.22, 0.09, 36000.0, 33000.0, 3000.0, 3800.0, 2800.0, 3500.0, 95000.0)
@@ -199,6 +248,31 @@ func _build_vehicles() -> void:
 		PackedFloat32Array([700, 1200, 2000, 3000, 4000, 4800, 5600, 6000]),
 		PackedFloat32Array([300, 380, 442, 470, 466, 428, 356, 246]))
 	pickup.gearbox = _gearbox(PackedFloat32Array([3.40, 2.15, 1.55, 1.20, 1.00, 0.82]), 3.2, 3.55, 0.90, 0.22)
+	pickup.transmissions = [
+		_trans("pickup_auto6", "اتوماتیک شش‌سرعته", "6-speed automatic", TransmissionProfile.Kind.AUTOMATIC,
+			PackedFloat32Array([3.40, 2.15, 1.55, 1.20, 1.00, 0.82]), 3.2, 3.55, 0.90, 0.34),
+		_trans("pickup_h6", "دستی H شش‌سرعته", "6-speed H-pattern manual", TransmissionProfile.Kind.MANUAL_H,
+			PackedFloat32Array([3.40, 2.15, 1.55, 1.20, 1.00, 0.82]), 3.2, 3.55, 0.90, 0.22),
+	]
+	# Big V8, small converter: strong stall multiplication but a firm lock-up.
+	pickup.transmissions[0].clutch_type = "torque_converter"
+	pickup.transmissions[0].converter_stall_mult = 1.95
+	pickup.transmissions[0].converter_lock_rpm = 1500.0
+	pickup.transmissions[0].auto_upshift_fraction = 0.66
+	pickup.transmissions[0].auto_downshift_fraction = 0.28
+	pickup.transmissions[0].kickdown_rpm_fraction = 0.52
+	pickup.transmissions[0].max_torque_nm = 640.0
+	pickup.transmissions[1].synchro = 0.8
+	pickup.stock_transmission = "pickup_auto6"
+	pickup.transfer_ids = PackedStringArray(["2H", "4H"])
+	pickup.transfer_ratios = PackedFloat32Array([1.0, 1.0])
+	pickup.default_transfer = "4H"
+	pickup.diff_modes = PackedStringArray(["open", "lsd", "locked"])
+	pickup.tire_options = _tire_options()
+	pickup.suspension_options = _susp_options()
+	pickup.has_winch = true
+	pickup.winch_force_n = 18000.0
+	pickup.winch_rope_m = 18.0
 	pickup.tire_front = _tire(0.43, 0.29, 36.0, 0.98, 0.030, 0.14)
 	pickup.tire_rear = _tire(0.43, 0.31, 38.0, 0.99, 0.032, 0.14)
 	pickup.suspension = _susp(0.24, 0.24, 0.10, 42000.0, 38000.0, 3300.0, 4200.0, 3100.0, 3900.0, 105000.0)
@@ -246,6 +320,32 @@ func _build_vehicles() -> void:
 		PackedFloat32Array([600, 900, 1400, 1800, 2400, 3000, 3400]),
 		PackedFloat32Array([520, 650, 720, 726, 676, 556, 372]))
 	titan.gearbox = _gearbox(PackedFloat32Array([6.00, 3.30, 2.05, 1.40, 1.00, 0.78]), 5.8, 5.2, 0.87, 0.34)
+	titan.transmissions = [
+		_trans("titan_auto6", "اتوماتیک سنگین", "Heavy-duty 6-speed automatic", TransmissionProfile.Kind.AUTOMATIC,
+			PackedFloat32Array([6.00, 3.30, 2.05, 1.40, 1.00, 0.78]), 5.8, 5.2, 0.87, 0.52),
+		_trans("titan_h6", "دستی H سنگین", "Heavy-duty 6-speed manual", TransmissionProfile.Kind.MANUAL_H,
+			PackedFloat32Array([6.00, 3.30, 2.05, 1.40, 1.00, 0.78]), 5.8, 5.2, 0.87, 0.38),
+	]
+	titan.transmissions[0].clutch_type = "torque_converter"
+	titan.transmissions[0].converter_stall_mult = 2.10
+	titan.transmissions[0].converter_lock_rpm = 1100.0
+	titan.transmissions[0].auto_upshift_fraction = 0.62
+	titan.transmissions[0].auto_downshift_fraction = 0.30
+	titan.transmissions[0].slope_downshift_deg = 7.0
+	titan.transmissions[0].max_torque_nm = 1200.0
+	titan.transmissions[0].durability = 1.6
+	titan.transmissions[0].ranges = PackedStringArray(["P", "R", "N", "D", "L"])
+	titan.transmissions[1].synchro = 0.55
+	titan.stock_transmission = "titan_auto6"
+	titan.transfer_ids = PackedStringArray(["2H", "4H", "4L"])
+	titan.transfer_ratios = PackedFloat32Array([1.0, 1.0, 2.72])
+	titan.default_transfer = "4H"
+	titan.diff_modes = PackedStringArray(["open", "lsd", "locked"])
+	titan.tire_options = _tire_options()
+	titan.suspension_options = _susp_options()
+	titan.has_winch = true
+	titan.winch_force_n = 26000.0
+	titan.winch_rope_m = 24.0
 	titan.tire_front = _tire(0.51, 0.33, 54.0, 1.00, 0.032, 0.13)
 	titan.tire_rear = _tire(0.51, 0.35, 58.0, 1.02, 0.033, 0.13)
 	titan.suspension = _susp(0.30, 0.26, 0.10, 62000.0, 68000.0, 5200.0, 6400.0, 5600.0, 6800.0, 150000.0)
@@ -273,6 +373,37 @@ func _gearbox(ratios: PackedFloat32Array, reverse: float, final: float, eff: flo
 	g.efficiency = eff
 	g.shift_time = shift
 	return g
+
+func _trans(id: String, fa: String, en: String, kind: int, ratios: PackedFloat32Array,
+		reverse: float, final: float, eff: float, shift: float) -> TransmissionProfile:
+	var t := TransmissionProfile.new()
+	t.id = id
+	t.name_fa = fa
+	t.name_en = en
+	t.kind = kind
+	t.ratios = ratios
+	t.reverse_ratio = reverse
+	t.final_drive = final
+	t.efficiency = eff
+	t.shift_time = shift
+	t.requires_clutch = kind != TransmissionProfile.Kind.MANUAL_SEQ
+	return t
+
+func _tire_options() -> Array[Dictionary]:
+	return [
+		{"id": "at", "name_fa": "آل‌ترین", "name_en": "All-terrain", "mu_mult": 1.0, "rr_mult": 1.0},
+		{"id": "mt", "name_fa": "گلی", "name_en": "Mud-terrain", "mu_mult": 1.12, "rr_mult": 1.10},
+		{"id": "rock", "name_fa": "سنگی", "name_en": "Rock", "mu_mult": 1.06, "rr_mult": 1.03},
+		{"id": "sand", "name_fa": "شنی", "name_en": "Sand", "mu_mult": 0.97, "rr_mult": 1.20},
+	]
+
+func _susp_options() -> Array[Dictionary]:
+	return [
+		{"id": "stock", "name_fa": "استاندارد", "name_en": "Stock", "spring_mult": 1.0, "damper_mult": 1.0, "travel_mult": 1.0, "ride_mult": 1.0},
+		{"id": "comfort", "name_fa": "نرم", "name_en": "Comfort", "spring_mult": 0.90, "damper_mult": 0.92, "travel_mult": 1.04, "ride_mult": 1.0},
+		{"id": "heavy", "name_fa": "سنگین", "name_en": "Heavy-duty", "spring_mult": 1.12, "damper_mult": 1.18, "travel_mult": 1.0, "ride_mult": 1.03},
+		{"id": "long", "name_fa": "کورس بلند", "name_en": "Long-travel", "spring_mult": 0.95, "damper_mult": 1.06, "travel_mult": 1.12, "ride_mult": 1.04},
+	]
 
 func _tire(radius: float, width: float, wheel_mass: float, mu: float, rr: float, peak_slip: float) -> TireConfig:
 	var t := TireConfig.new()
@@ -414,6 +545,13 @@ func _build_environments() -> void:
 			"desc_en": "Snow, ice and cold stone grades.",
 			"accent": Color(0.58, 0.72, 0.86), "ambience": "ambience_quarry",
 			"sky_top": Color(0.34, 0.46, 0.58), "sky_bottom": Color(0.82, 0.88, 0.93),
+		},
+		{
+			"id": "black_ridge", "name_fa": "یال سیاه", "name_en": "BLACK RIDGE",
+			"desc_fa": "سنگ سیاه، خاکستر، جاده‌های شکسته و موانع صنعتی. سخت‌ترین منطقهٔ بازی.",
+			"desc_en": "Black stone, ash, broken roads and industrial obstacles. The hardest region.",
+			"accent": Color(0.72, 0.52, 0.24), "ambience": "ambience_black_ridge",
+			"sky_top": Color(0.16, 0.18, 0.20), "sky_bottom": Color(0.44, 0.42, 0.38),
 		},
 	]
 

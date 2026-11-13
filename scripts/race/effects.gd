@@ -5,27 +5,30 @@ extends Node2D
 
 var vehicle: VehicleBody
 var env_id: String = "canyon"
+var quality: int = 2
 var _wheel_dust: Array[CPUParticles2D] = []
 var _exhaust: CPUParticles2D
 var _weather: CPUParticles2D
 var _soft: Texture2D
 
-func setup(v: VehicleBody, environment: String) -> void:
+func setup(v: VehicleBody, environment: String, quality_level: int = 2) -> void:
 	vehicle = v
 	env_id = environment
+	quality = clampi(quality_level, 0, 2)
 	_soft = _soft_circle()
 	for i: int in range(2):
 		var p := _make_particles(Color(0.72, 0.60, 0.44, 0.5), 16, 1.0, Vector2(0, -1), 55.0, 0.35)
 		add_child(p)
 		_wheel_dust.append(p)
-	_exhaust = _make_particles(Color(0.35, 0.34, 0.33, 0.30), 12, 0.8, Vector2(-1, -0.4), 22.0, 0.22)
-	add_child(_exhaust)
+	if quality > 0:
+		_exhaust = _make_particles(Color(0.35, 0.34, 0.33, 0.30), 12 if quality == 2 else 7, 0.8, Vector2(-1, -0.4), 22.0, 0.22)
+		add_child(_exhaust)
 
-	if env_id == "quarry":
+	if env_id == "quarry" and quality > 0:
 		var layer := CanvasLayer.new()
 		layer.layer = 4
 		add_child(layer)
-		_weather = _make_particles(Color(0.95, 0.97, 1.0, 0.55), 70, 3.4, Vector2(0, 1), 30.0, 0.10)
+		_weather = _make_particles(Color(0.95, 0.97, 1.0, 0.55), 70 if quality == 2 else 34, 3.4, Vector2(0, 1), 30.0, 0.10)
 		_weather.emission_shape = CPUParticles2D.EMISSION_SHAPE_RECTANGLE
 		_weather.emission_rect_extents = Vector2(760, 8)
 		_weather.gravity = Vector2(28, 90)
@@ -108,7 +111,6 @@ func _surface_color(surface: SurfaceProfile) -> Color:
 			return Color(0.86, 0.72, 0.5, 0.55)
 		_:
 			return Color(0.66, 0.55, 0.4, 0.45)
-
 func burst(world_point: Vector2, kind: String = "dust") -> void:
 	var color: Color = Color(0.7, 0.6, 0.45, 0.6)
 	var speed: float = 90.0
@@ -122,7 +124,13 @@ func burst(world_point: Vector2, kind: String = "dust") -> void:
 		"mud", "water":
 			color = Color(0.35, 0.28, 0.18, 0.75)
 			speed = 120.0
-	var p := _make_particles(color, 20, 0.7, Vector2(0, -1), speed, 0.28)
+		"snow":
+			color = Color(0.95, 0.97, 1.0, 0.85)
+			speed = 110.0
+		"spark":
+			color = Color(0.98, 0.70, 0.28, 0.9)
+			speed = 190.0
+	var p := _make_particles(color, 20 if quality == 2 else 12, 0.7, Vector2(0, -1), speed, 0.28)
 	p.one_shot = true
 	p.explosiveness = 1.0
 	p.emitting = true

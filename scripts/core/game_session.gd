@@ -22,7 +22,20 @@ func vehicle_def() -> VehicleDef:
 	var base: VehicleDef = Content.vehicle_by_id(vehicle_id)
 	if base == null:
 		base = Content.vehicles[0]
-	return GarageModel.build(base, SaveManager.vehicle_upgrades(vehicle_id))
+	return GarageModel.build(base, SaveManager.vehicle_upgrades(vehicle_id), SaveManager.vehicle_config(vehicle_id))
+
+## The driveline configuration that will actually be simulated for this run.
+func vehicle_config() -> Dictionary:
+	var base: VehicleDef = Content.vehicle_by_id(vehicle_id)
+	return GarageModel.sanitize_config(base, SaveManager.vehicle_config(vehicle_id))
+
+func set_vehicle_config_value(key: String, value: Variant) -> void:
+	SaveManager.set_config_value(vehicle_id, key, value)
+
+## Prepares a run without switching scenes, so the route briefing can inspect the
+## real stage and driveline before the player commits.
+func begin_stage(id: String, race_mode: String) -> void:
+	start_stage(id, race_mode)
 
 func mode_label() -> String:
 	return Loc.t("mode_%s" % mode)

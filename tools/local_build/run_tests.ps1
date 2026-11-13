@@ -16,6 +16,7 @@ try {
     Initialize-GodotEnvironment
     $godot = Get-GodotPath
     Assert-GodotVersion -Godot $godot
+    Ensure-ProjectImported -Godot $godot
 
     Write-Host "Running test suite..." -ForegroundColor Cyan
     $output = Invoke-Godot -Godot $godot -LogName 'tests.log' -Arguments @(

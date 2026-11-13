@@ -4,7 +4,7 @@
     Builds the MUDRO Android debug APK locally and verifies the result.
 .DESCRIPTION
     Uses the locally installed Godot 4.7.2 export templates and the Android
-    build-tools to produce local-builds/android/MUDRO-debug.apk, then checks the
+    build-tools to produce local-builds/android/MUDRO-2.0-debug.apk, then checks the
     package id, architectures and signature with aapt2/apksigner.
 .EXAMPLE
     .\tools\local_build\build_android_debug.ps1
@@ -26,7 +26,7 @@ try {
     $outDir = Join-Path $ProjectRoot 'local-builds\android'
     $reportDir = Join-Path $ProjectRoot 'local-builds\reports'
     New-Item -ItemType Directory -Force -Path $outDir, $reportDir | Out-Null
-    $apk = Join-Path $outDir 'MUDRO-debug.apk'
+    $apk = Join-Path $outDir 'MUDRO-2.0-debug.apk'
     if (Test-Path -LiteralPath $apk) { Remove-Item -LiteralPath $apk -Force }
 
     Write-Host "Exporting Android debug APK..." -ForegroundColor Cyan

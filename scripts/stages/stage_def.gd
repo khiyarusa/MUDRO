@@ -73,3 +73,61 @@ func net_climb_m() -> float:
 	if points.is_empty():
 		return 0.0
 	return points[points.size() - 1].y - points[0].y
+
+## Route briefing data, computed from the authored keyframes and surface spans —
+## never from a hand-written number that could drift away from the stage.
+func route_stats() -> Dictionary:
+	var max_grade: float = 0.0
+	var sum_grade: float = 0.0
+	var grade_count: int = 0
+	var climbs: int = 0
+	var descents: int = 0
+	for i: int in range(points.size() - 1):
+		var a: Vector2 = points[i]
+		var b: Vector2 = points[i + 1]
+		var dx: float = b.x - a.x
+		if dx <= 0.01:
+			continue
+		var grade: float = rad_to_deg(atan2(b.y - a.y, dx))
+		max_grade = maxf(max_grade, grade)
+		sum_grade += absf(grade)
+		grade_count += 1
+		if grade >= 12.0:
+			climbs += 1
+		elif grade <= -12.0:
+			descents += 1
+
+	var rock: float = 0.0
+	var dirt: float = 0.0
+	var mud: float = 0.0
+	var total: float = 0.0
+	for span: Dictionary in surface_spans:
+		var from_x: float = float(span.get("from", 0.0))
+		var to_x: float = float(span.get("to", length_m))
+		var width: float = maxf(to_x - from_x, 0.0)
+		var sid: String = String(span.get("surface", "hard_dirt"))
+		total += width
+		match sid:
+			"rock", "gravel", "scree", "asphalt", "steel":
+				rock += width
+			"mud", "wet_mud", "snow", "ice", "water", "ash":
+				mud += width
+			_:
+				dirt += width
+	var denom: float = maxf(total, 1.0)
+	var solid_obstacles: int = 0
+	for o: Dictionary in obstacles:
+		if bool(o.get("solid", true)):
+			solid_obstacles += 1
+	return {
+		"length_m": length_m,
+		"max_grade_deg": max_grade,
+		"avg_grade_deg": sum_grade / maxf(float(grade_count), 1.0),
+		"rock_pct": rock / denom * 100.0,
+		"dirt_pct": dirt / denom * 100.0,
+		"mud_pct": mud / denom * 100.0,
+		"obstacles": solid_obstacles,
+		"climbs": climbs,
+		"descents": descents,
+		"net_climb_m": net_climb_m(),
+	}

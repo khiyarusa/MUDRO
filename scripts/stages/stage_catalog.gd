@@ -18,6 +18,10 @@ static func build_all(_surfaces: Dictionary) -> Array[StageDef]:
 	out.append(quarry_02())
 	out.append(quarry_03())
 	out.append(quarry_04())
+	out.append(black_ridge_01())
+	out.append(black_ridge_02())
+	out.append(black_ridge_03())
+	out.append(black_ridge_04())
 	return out
 
 static func _rock(x: float, s: float = 1.0, solid: bool = true) -> Dictionary:
@@ -252,6 +256,24 @@ static func quarry_02() -> StageDef:
 static func _snow_rock(x: float) -> Dictionary:
 	return {"kind": "snow_rock", "x": x, "scale": 1.0, "rot": -0.1, "solid": true}
 
+static func _barrier(x: float, s: float = 1.0) -> Dictionary:
+	return {"kind": "industrial_barrier", "x": x, "scale": s, "rot": 0.0, "solid": true}
+
+static func _cart(x: float, s: float = 1.0) -> Dictionary:
+	return {"kind": "ore_cart", "x": x, "scale": s, "rot": 0.0, "solid": true}
+
+static func _pipes(x: float, s: float = 1.0) -> Dictionary:
+	return {"kind": "pipe_stack", "x": x, "scale": s, "rot": 0.0, "solid": true}
+
+static func _ash(x: float, s: float = 1.0) -> Dictionary:
+	return {"kind": "ash_rock", "x": x, "scale": s, "rot": 0.2, "solid": true}
+
+static func _lamp(x: float) -> Dictionary:
+	return {"kind": "floodlight", "x": x, "scale": 0.9, "rot": 0.0, "solid": false}
+
+static func _bridge(x: float, span_m: float, deck_y: float) -> Dictionary:
+	return {"kind": "steel_bridge", "x": x, "span_m": span_m, "deck_y": deck_y, "solid": true}
+
 static func quarry_03() -> StageDef:
 	return _mk("quarry_03", "quarry", "تراس‌های سنگی", "Stone Terraces",
 		"تراس‌های بریده‌شده در سنگ. هر پله یک آزمون گشتاور و چسبندگی.",
@@ -295,3 +317,98 @@ static func quarry_04() -> StageDef:
 		_rock(456.0, 1.0), _snow_rock(502.0), _block(548.0, 1.2), _rock(596.0, 1.0),
 		_snow_rock(648.0), _block(690.0)],
 		[240.0, 480.0], 140.0, 172.0, 215.0, 1304)
+
+# ------------------------------------------------------------- black ridge ---
+
+static func black_ridge_01() -> StageDef:
+	var s: StageDef = _mk("black_ridge_01", "black_ridge", "دروازهٔ سیاه", "Black Gate",
+		"ورودی معدن متروکه. خاکستر نرم، موانع بتنی و یک کارت سنگین وسط راه.",
+		"The mouth of an abandoned mine. Soft ash, concrete barriers and a loaded ore cart in the way.",
+		3, 520.0,
+		[Vector2(0, 0), Vector2(40, 1), Vector2(80, 4), Vector2(115, 9), Vector2(150, 12),
+		Vector2(190, 10), Vector2(230, 16), Vector2(270, 22), Vector2(310, 24),
+		Vector2(350, 21), Vector2(390, 27), Vector2(430, 33), Vector2(470, 36),
+		Vector2(520, 40)],
+		[{"from": 0.0, "to": 120.0, "surface": "ash"},
+		{"from": 120.0, "to": 210.0, "surface": "scree"},
+		{"from": 210.0, "to": 320.0, "surface": "rock"},
+		{"from": 320.0, "to": 430.0, "surface": "ash"},
+		{"from": 430.0, "to": 520.0, "surface": "scree"}],
+		[_barrier(78.0), _ash(118.0, 1.0), _cart(168.0), _lamp(196.0), _barrier(240.0, 1.1),
+		_ash(286.0, 1.2), _pipes(330.0), _cart(378.0, 1.1), _ash(424.0, 0.95),
+		_barrier(470.0), _lamp(500.0)],
+		[170.0, 340.0], 74.0, 90.0, 114.0, 1401)
+	s.weather = "fog"
+	return s
+
+static func black_ridge_02() -> StageDef:
+	var s: StageDef = _mk("black_ridge_02", "black_ridge", "جادهٔ حمل", "Haul Road",
+		"صعود پیوسته روی سنگ‌ریزه و خاکستر. کامیون‌های سنگین اینجا فقط با دندهٔ درست بالا می‌روند.",
+		"A sustained climb on scree and ash. Heavy trucks only make it in the right gear.",
+		4, 600.0,
+		[Vector2(0, 0), Vector2(45, 3), Vector2(90, 12), Vector2(135, 26), Vector2(180, 42),
+		Vector2(225, 56), Vector2(270, 66), Vector2(315, 74), Vector2(360, 86),
+		Vector2(405, 94), Vector2(450, 100), Vector2(495, 108), Vector2(540, 116),
+		Vector2(600, 124)],
+		[{"from": 0.0, "to": 70.0, "surface": "ash"},
+		{"from": 70.0, "to": 190.0, "surface": "scree"},
+		{"from": 190.0, "to": 300.0, "surface": "rock"},
+		{"from": 300.0, "to": 420.0, "surface": "scree"},
+		{"from": 420.0, "to": 520.0, "surface": "ash"},
+		{"from": 520.0, "to": 600.0, "surface": "rock"}],
+		[_barrier(84.0), _ash(126.0), _cart(172.0, 1.1), _pipes(218.0), _ash(262.0, 1.15),
+		_lamp(304.0), _barrier(344.0, 1.1), _cart(392.0), _ash(438.0, 1.2),
+		_pipes(486.0), _barrier(534.0), _lamp(572.0)],
+		[200.0, 400.0], 88.0, 106.0, 134.0, 1402)
+	s.weather = "cloudy"
+	return s
+
+static func black_ridge_03() -> StageDef:
+	var s: StageDef = _mk("black_ridge_03", "black_ridge", "دهانهٔ شکسته", "Broken Span",
+		"دو دهانهٔ عمیق که فقط با پل فولادی رد می‌شوند. ترمز و دندهٔ درست، قبل از لبه.",
+		"Two deep gaps crossed only by steel decks. Pick the gear before the lip, not on it.",
+		5, 640.0,
+		[Vector2(0, 0), Vector2(45, 2), Vector2(90, 8), Vector2(135, 18), Vector2(180, 24),
+		Vector2(225, 26), Vector2(255, 25), Vector2(270, 24), Vector2(278, 22),
+		Vector2(286, 6), Vector2(300, 2), Vector2(314, 6), Vector2(322, 22),
+		Vector2(340, 24), Vector2(380, 30), Vector2(420, 34), Vector2(455, 33),
+		Vector2(470, 31), Vector2(478, 10), Vector2(492, 5), Vector2(506, 10),
+		Vector2(514, 31), Vector2(540, 34), Vector2(580, 40), Vector2(640, 46)],
+		[{"from": 0.0, "to": 90.0, "surface": "ash"},
+		{"from": 90.0, "to": 240.0, "surface": "scree"},
+		{"from": 240.0, "to": 330.0, "surface": "rock"},
+		{"from": 330.0, "to": 450.0, "surface": "scree"},
+		{"from": 450.0, "to": 530.0, "surface": "ash"},
+		{"from": 530.0, "to": 640.0, "surface": "rock"}],
+		[_barrier(70.0), _ash(112.0), _cart(158.0), _pipes(206.0), _lamp(238.0),
+		_bridge(300.0, 34.0, 22.0), _ash(352.0, 1.1), _barrier(392.0),
+		_cart(432.0), _bridge(492.0, 34.0, 31.0), _ash(548.0, 1.15), _pipes(586.0),
+		_barrier(618.0)],
+		[210.0, 420.0], 96.0, 116.0, 146.0, 1403)
+	s.weather = "fog"
+	return s
+
+static func black_ridge_04() -> StageDef:
+	var s: StageDef = _mk("black_ridge_04", "black_ridge", "قلهٔ خاکستر", "Ash Summit",
+		"آخرین صعود: شیب تند، لکه‌های یخ و موانع صنعتی. سنگین‌ترین ماشین با درست‌ترین گیربکس.",
+		"The final climb: steep grade, ice patches and industrial obstacles. Heaviest machine, right gearbox.",
+		6, 720.0,
+		[Vector2(0, 0), Vector2(50, 4), Vector2(95, 14), Vector2(140, 30), Vector2(185, 48),
+		Vector2(230, 62), Vector2(275, 74), Vector2(320, 86), Vector2(365, 98),
+		Vector2(410, 108), Vector2(455, 116), Vector2(500, 124), Vector2(545, 132),
+		Vector2(590, 138), Vector2(635, 146), Vector2(680, 154), Vector2(720, 160)],
+		[{"from": 0.0, "to": 80.0, "surface": "ash"},
+		{"from": 80.0, "to": 180.0, "surface": "scree"},
+		{"from": 180.0, "to": 280.0, "surface": "rock"},
+		{"from": 280.0, "to": 360.0, "surface": "ice"},
+		{"from": 360.0, "to": 460.0, "surface": "scree"},
+		{"from": 460.0, "to": 560.0, "surface": "ash"},
+		{"from": 560.0, "to": 640.0, "surface": "ice"},
+		{"from": 640.0, "to": 720.0, "surface": "rock"}],
+		[_barrier(84.0), _ash(128.0, 1.1), _cart(174.0), _pipes(220.0), _lamp(266.0),
+		_ash(306.0, 1.2), _barrier(348.0, 1.1), _cart(394.0, 1.15), _pipes(438.0),
+		_ash(482.0), _barrier(526.0), _lamp(564.0), _ash(604.0, 1.2),
+		_pipes(648.0), _barrier(688.0)],
+		[240.0, 480.0], 132.0, 158.0, 196.0, 1404)
+	s.weather = "snow"
+	return s

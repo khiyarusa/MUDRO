@@ -12,6 +12,9 @@ const BINDINGS: Dictionary = {
 	"recover": [KEY_R],
 	"pause": [KEY_ESCAPE, KEY_P],
 	"start_engine": [KEY_I],
+	"transfer_toggle": [KEY_T],
+	"diff_toggle": [KEY_G],
+	"winch_toggle": [KEY_L],
 	"debug_toggle": [KEY_F3],
 }
 

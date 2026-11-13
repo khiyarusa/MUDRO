@@ -36,8 +36,11 @@ func setup(environment: String, cam: Camera2D) -> void:
 	_sky.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_layer.add_child(_sky)
 
-	for i: int in range(3):
-		var names: Array[String] = ["far", "mid", "near"]
+	var quality: int = SettingsService.quality
+	var wanted: Array[String] = ["far", "mid", "near"]
+	var first: int = 0 if quality >= 2 else (1 if quality == 1 else 2)
+	for i: int in range(first, 3):
+		var names: Array[String] = wanted
 		var tex: Texture2D = _tex(names[i])
 		if tex == null:
 			continue
@@ -52,6 +55,8 @@ func setup(environment: String, cam: Camera2D) -> void:
 		tr.modulate = Color(1, 1, 1, 0.9 - float(i) * 0.04)
 		_layer.add_child(tr)
 		_rects.append(tr)
+		_factors.append(_factors[i])
+		_vertical.append(_vertical[i])
 		_sizes.append(float(tex.get_width()))
 		_heights.append(float(tex.get_height()))
 
@@ -61,6 +66,8 @@ func _fallback_sky() -> Color:
 			return Color(0.55, 0.60, 0.61)
 		"quarry":
 			return Color(0.62, 0.72, 0.82)
+		"black_ridge":
+			return Color(0.24, 0.26, 0.28)
 		_:
 			return Color(0.86, 0.72, 0.55)
 

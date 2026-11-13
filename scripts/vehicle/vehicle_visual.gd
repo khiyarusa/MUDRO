@@ -9,6 +9,8 @@ var body_sprite: Sprite2D
 var wheel_sprites: Array[Sprite2D] = []
 var body_fallback: Polygon2D
 var brake_glow: Sprite2D
+var _shocks: Array[Line2D] = []
+var _springs: Array[Line2D] = []
 var _dirt: float = 0.0
 var _base_modulate: Color = Color.WHITE
 
@@ -67,6 +69,26 @@ func setup(v: VehicleBody) -> void:
 	brake_glow.position = Vector2(rear_x - vehicle.definition.length_m * 0.18 * Units.PPM, vehicle.definition.com_height_m * Units.PPM - 0.55 * Units.PPM)
 	add_child(brake_glow)
 
+	# Visible suspension: the damper body and the coil are driven by the simulated
+	# compression every frame, so a bottoming-out axle is something you can see.
+	for i: int in range(2):
+		var damper := Line2D.new()
+		damper.name = "Damper%d" % i
+		damper.width = 4.0
+		damper.default_color = Color(0.16, 0.17, 0.18, 0.95)
+		damper.z_index = 0
+		damper.begin_cap_mode = Line2D.LINE_CAP_ROUND
+		damper.end_cap_mode = Line2D.LINE_CAP_ROUND
+		add_child(damper)
+		_shocks.append(damper)
+		var spring := Line2D.new()
+		spring.name = "Spring%d" % i
+		spring.width = 2.5
+		spring.default_color = Color(0.72, 0.52, 0.22, 0.9)
+		spring.z_index = 1
+		add_child(spring)
+		_springs.append(spring)
+
 func _process(delta: float) -> void:
 	if vehicle == null or vehicle.axles.size() < 2:
 		return
@@ -75,6 +97,7 @@ func _process(delta: float) -> void:
 		var wheel: Sprite2D = wheel_sprites[i]
 		wheel.position = wheel.position.lerp(axle.hub_local, clampf(delta * 26.0, 0.0, 1.0))
 		wheel.rotation = axle.spin_angle
+		_update_suspension_art(i, axle)
 	if brake_glow != null:
 		var braking: bool = vehicle.brake_input > 0.15 or vehicle.handbrake_input > 0.1
 		brake_glow.visible = braking
@@ -85,6 +108,34 @@ func _process(delta: float) -> void:
 		_dirt = lerpf(_dirt, worn, clampf(delta * 1.6, 0.0, 1.0))
 		var tint: Color = _base_modulate.lerp(Color(0.42, 0.33, 0.24), _dirt * 0.55)
 		body_sprite.modulate = tint
+
+func _update_suspension_art(index: int, axle: WheelAxis) -> void:
+	if index >= _shocks.size(): 
+		return
+	var mount: Vector2 = vehicle.mount_local(index)
+	var hub: Vector2 = axle.hub_local
+	var travel: float = clampf(axle.compression / maxf(vehicle.definition.suspension.travel_m, 0.01), 0.0, 1.4)
+	var damper: Line2D = _shocks[index]
+	damper.clear_points()
+	damper.add_point(mount)
+	damper.add_point(mount.lerp(hub, clampf(0.35 + travel * 0.25, 0.2, 0.75)))
+	damper.default_color = Color(0.16, 0.17, 0.18, 0.95).lerp(Color(0.85, 0.62, 0.26, 0.95), clampf(travel - 0.85, 0.0, 0.4))
+	var spring: Line2D = _springs[index]
+	spring.clear_points()
+	var a: Vector2 = mount.lerp(hub, 0.35)
+	var b: Vector2 = hub
+	var dir: Vector2 = b - a
+	if dir.length() < 1.0:
+		return
+	var perp: Vector2 = Vector2(-dir.y, dir.x).normalized()
+	var coils: int = 7
+	for k: int in range(coils + 1):
+		var t: float = float(k) / float(coils)
+		var p: Vector2 = a + dir * t
+		if k > 0 and k < coils:
+			p += perp * (5.0 if k % 2 == 0 else -5.0)
+		spring.add_point(p)
+	spring.default_color = Color(0.72, 0.52, 0.22, 0.9).lerp(Color(0.95, 0.40, 0.28, 0.95), clampf(travel - 0.9, 0.0, 0.5))
 
 func _try_load(path: String) -> Texture2D:
 	if path.is_empty() or not ResourceLoader.exists(path):
