@@ -1,0 +1,59 @@
+; MUDRO — OFFROAD PHYSICS
+; Godot 4.7.2 / typed GDScript / Android landscape / 2D side-view physics.
+; Units convention: 1 metre = 64 px (see scripts/core/units.gd).
+
+config_version=5
+
+[application]
+
+config/name="MUDRO"
+config/description="MUDRO — OFFROAD PHYSICS. Persian-first offline off-road physics game."
+config/version="1.0.0"
+run/main_scene="res://scenes/boot/boot.tscn"
+config/features=PackedStringArray("4.7", "GL Compatibility")
+config/icon="res://icon.svg"
+config/use_custom_user_dir=true
+config/custom_user_dir_name="MUDRO"
+boot_splash/show_image=false
+boot_splash/bg_color=Color(0.043137, 0.047059, 0.054902, 1)
+
+[autoload]
+
+Loc="*res://scripts/core/loc.gd"
+InputRouter="*res://scripts/core/input_router.gd"
+SettingsService="*res://scripts/core/settings_service.gd"
+SaveManager="*res://scripts/core/save_manager.gd"
+Content="*res://scripts/core/content_db.gd"
+AudioDirector="*res://scripts/audio/audio_director.gd"
+Router="*res://scripts/core/scene_router.gd"
+GameSession="*res://scripts/core/game_session.gd"
+
+[audio]
+
+mix_rate=44100
+
+[display]
+
+window/size/viewport_width=1280
+window/size/viewport_height=720
+window/size/mode=0
+window/stretch/mode="canvas_items"
+window/stretch/aspect="expand"
+window/handheld/orientation=4
+
+[physics]
+
+2d/default_gravity=627.62
+2d/default_linear_damp=0.0
+2d/default_angular_damp=0.0
+common/physics_ticks_per_second=120
+common/max_physics_steps_per_frame=8
+
+[rendering]
+
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"
+textures/vram_compression/import_etc2_astc=true
+environment/defaults/default_clear_color=Color(0.06, 0.07, 0.08, 1)
+2d/snap/snap_2d_transforms_to_pixel=false
+anti_aliasing/quality/msaa_2d=0

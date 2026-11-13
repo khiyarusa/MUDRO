@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <g fill="none" stroke="#1a1512" stroke-width="9" stroke-linecap="round" stroke-linejoin="round" opacity="0.35" transform="translate(2.6 3.4)">
+    <path d="M34 16 H56 L66 52 H46 Z" fill="#1a1512" stroke="none"/>
+    <path d="M72 16 H94 L82 52 H62 Z" fill="#1a1512" stroke="none"/>
+    <circle cx="64" cy="78" r="29" fill="none" stroke="#1a1512" stroke-width="9"/>
+    <circle cx="64" cy="78" r="20" fill="none" stroke="#1a1512" stroke-width="5"/>
+    <polygon points="64,65.5 67.06,73.79 75.89,74.14 68.95,79.61 71.35,88.11 64,83.2 56.65,88.11 59.05,79.61 52.11,74.14 60.94,73.79" fill="#1a1512" stroke="none"/>
+  </g>
+  <g fill="none" stroke="#f4ede1" stroke-width="9" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M34 16 H56 L66 52 H46 Z" fill="#f4ede1" stroke="none"/>
+    <path d="M72 16 H94 L82 52 H62 Z" fill="#f4ede1" stroke="none"/>
+    <circle cx="64" cy="78" r="29" fill="none" stroke="#f4ede1" stroke-width="9"/>
+    <circle cx="64" cy="78" r="20" fill="none" stroke="#f4ede1" stroke-width="5"/>
+    <polygon points="64,65.5 67.06,73.79 75.89,74.14 68.95,79.61 71.35,88.11 64,83.2 56.65,88.11 59.05,79.61 52.11,74.14 60.94,73.79" fill="#f4ede1" stroke="none"/>
+  </g>
+</svg>

@@ -1,0 +1,19 @@
+[remap]
+
+importer="csv_translation"
+type="Translation"
+uid="uid://cujysbihue6gm"
+
+[deps]
+
+files=["res://docs/ASSET_LICENSES.type.translation", "res://docs/ASSET_LICENSES.path.translation", "res://docs/ASSET_LICENSES.source.translation", "res://docs/ASSET_LICENSES.creator.translation", "res://docs/ASSET_LICENSES.license.translation", "res://docs/ASSET_LICENSES.license.translation", "res://docs/ASSET_LICENSES.commercial.translation", "res://docs/ASSET_LICENSES.attribution.translation", "res://docs/ASSET_LICENSES.modifications.translation"]
+
+source_file="res://docs/ASSET_LICENSES.csv"
+dest_files=["res://docs/ASSET_LICENSES.type.translation", "res://docs/ASSET_LICENSES.path.translation", "res://docs/ASSET_LICENSES.source.translation", "res://docs/ASSET_LICENSES.creator.translation", "res://docs/ASSET_LICENSES.license.translation", "res://docs/ASSET_LICENSES.license.translation", "res://docs/ASSET_LICENSES.commercial.translation", "res://docs/ASSET_LICENSES.attribution.translation", "res://docs/ASSET_LICENSES.modifications.translation"]
+
+[params]
+
+compress=1
+delimiter=0
+unescape_keys=false
+unescape_translations=true
