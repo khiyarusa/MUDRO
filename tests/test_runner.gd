@@ -1,823 +1,1155 @@
 extends Node
-## MUDRO automated test suite. Runs the real simulation headlessly:
+## MUDRO 3.0 headless test suite.
+##
 ##   godot --headless --path . res://tests/test_runner.tscn
-## Exit code 0 = all tests passed, 1 = failures.
+##
+## Prints exactly one PASS/FAIL line per assertion and a final
+## `TESTS: <passed>/<total> passed` line, then exits with 0 (nothing failed) or
+## 1 (at least one failure).
+##
+## Coverage:
+##   A  authored track profiles: C1 continuity, no steps, length, grade,
+##      checkpoints, finish, surface coverage, layout validity, stats
+##   B  terrain builder in a real SceneTree: no obstacle/decor colliders
+##   C  the five documented vehicles and their stock engine build
+##   D  the parts catalogue and the causality of tuning
+##   E  the thermal model under a sustained climb
+##   F  the dyno
+##   G  the gearbox / clutch interlocks
+##   H  the v4 -> v5 save migration
+##   I  mobile/UI data contracts
+
+const DOC_VEHICLE_IDS: Array[String] = [
+	"jimny_jb74", "hilux_an120", "patrol_y61", "pajero_v80", "lc79",
+]
+const TRACK_MODES: Array[String] = [
+	"rally", "hill_climb", "downhill", "sprint", "time_attack", "endurance",
+	"free_drive", "test",
+]
+
+const SAMPLE_STEP_M: float = 0.35
+const MAX_STEP_RISE_M: float = 0.5
+const C1_EPS_M: float = 0.05
+const C1_TOLERANCE: float = 0.01
+const MIN_TRACK_LENGTH_M: float = 300.0
+const MAX_GRADE_DEG: float = 30.0
 
 var _pass: int = 0
 var _fail: int = 0
-var _arena: Node2D
-var _profile_snapshot: Dictionary = {}
+
+# ------------------------------------------------------------------ harness ---
 
 func _ready() -> void:
 	await get_tree().process_frame
-	_profile_snapshot = SaveManager.data.duplicate(true)
-	print("=== MUDRO TEST SUITE ===")
+	print("=== MUDRO 3.0 TEST SUITE ===")
 	print("godot %s   physics %d Hz   ppm %.1f" % [
-		Engine.get_version_info()["string"], Engine.physics_ticks_per_second, Units.PPM])
-
-	await _test_units()
-	await _test_engine()
-	await _test_gearbox()
-	await _test_input_state()
-	await _test_transmission_profiles()
-	await _test_h_pattern()
-	await _test_clutch_interlock()
-	await _test_automatic()
-	await _test_transfer_and_diff()
-	await _test_tires()
-	await _test_physics_static()
-	await _test_acceleration()
-	await _test_hill_climb()
-	await _test_grip_limit()
-	await _test_mass_effect()
-	await _test_wheel_radius()
-	await _test_engine_braking()
-	await _test_landing()
-	await _test_stall()
-	await _test_weather()
-	await _test_winch()
-	await _test_touch_layout()
-	await _test_route_stats()
-	await _test_content_2_0()
-	await _test_bridge_platform()
-	await _test_race_integration()
-	await _test_progression()
-	await _test_config_save()
-
-	# Restore the player's real profile after progression tests.
-	SaveManager.data = _profile_snapshot
-	SaveManager.save_profile()
+		Engine.get_version_info()["string"], Engine.physics_ticks_per_second, Units.PPM,
+	])
+	_test_a_track_quality()
+	await _test_b_terrain()
+	_test_c_vehicles()
+	_test_d_parts_and_tuning()
+	_test_e_thermal()
+	_test_f_dyno()
+	_test_g_transmission()
+	_test_h_save_migration()
+	_test_i_data_contracts()
+	await _test_j_radio()
+	_test_k_weather()
 	_report()
 
 func _report() -> void:
+	var total: int = _pass + _fail
 	print("---")
-	print("TESTS: %d passed, %d failed" % [_pass, _fail])
-	if _fail == 0:
-		print("RESULT: ALL TESTS PASSED")
-	else:
-		print("RESULT: FAILURES PRESENT")
+	print("TESTS: %d/%d passed" % [_pass, total])
 	get_tree().quit(0 if _fail == 0 else 1)
 
-func check(test_name: String, condition: bool, detail: String = "") -> void:
-	if condition:
+func _section(title: String) -> void:
+	print("")
+	print("=== %s ===" % title)
+
+func _check(assertion: String, ok: bool, detail: String = "") -> void:
+	var tag: String = "PASS" if ok else "FAIL"
+	var suffix: String = "" if detail.is_empty() else "  |  " + detail
+	print("%s  %-66s%s" % [tag, assertion, suffix])
+	if ok:
 		_pass += 1
-		print("PASS  %-42s %s" % [test_name, detail])
 	else:
 		_fail += 1
-		print("FAIL  %-42s %s" % [test_name, detail])
 
-func near(a: float, b: float, tolerance: float) -> bool:
-	return absf(a - b) <= tolerance
+func _f(value: float, digits: int = 2) -> String:
+	return String.num(value, digits)
 
-# ------------------------------------------------------------------- units ---
+func _join(items: Array[String]) -> String:
+	var out: String = ""
+	for i: int in range(items.size()):
+		if i > 0:
+			out += ", "
+		out += items[i]
+	return out
 
-func _test_units() -> void:
-	check("units: metres to pixels", near(Units.m2px(2.0), 128.0, 0.001), "2 m = 128 px")
-	check("units: newtons to pixels", near(Units.n2px(10.0), 640.0, 0.001), "10 N = 640 px")
-	check("units: torque scaling is ppm^2", near(Units.nm2px(1.0), 4096.0, 0.001), "1 Nm = 4096 px")
-	check("units: speed conversion", near(Units.px2kmh(Units.PPM * 10.0), 36.0, 0.01), "10 m/s = 36 km/h")
-	check("units: rpm/omega round trip", near(Units.rpm_from_omega(Units.omega_from_rpm(3000.0)), 3000.0, 0.01), "3000 rpm")
+func _slot_name(slot: int) -> String:
+	return String(PartDef.SLOT_NAMES_EN.get(slot, "slot %d" % slot))
 
-# ------------------------------------------------------------------ engine ---
+func _fit(pairs: Dictionary) -> Dictionary:
+	var cfg: Dictionary = GarageModel.empty_config()
+	var parts: Dictionary = {}
+	for key: Variant in pairs.keys():
+		parts[str(int(key))] = String(pairs[key])
+	cfg["parts"] = parts
+	return cfg
 
-func _test_engine() -> void:
-	var cfg: EngineConfig = Content.vehicle_by_id("ranger_4x4").engine
-	var t_idle: float = cfg.torque_at(cfg.idle_rpm)
-	var t_mid: float = cfg.torque_at(1800.0)
-	var t_peak: float = cfg.peak_torque()
-	check("engine: idle torque is positive", t_idle > 50.0, "%.1f Nm at %.0f rpm" % [t_idle, cfg.idle_rpm])
-	check("engine: torque varies with rpm", not near(t_idle, t_mid, 1.0), "idle %.0f vs 1800 %.0f Nm" % [t_idle, t_mid])
-	check("engine: peak torque inside curve", near(t_peak, 292.0, 1.0), "%.1f Nm" % t_peak)
-	check("engine: interpolates between samples", cfg.torque_at(2100.0) > cfg.torque_at(1800.0) - 0.001 and cfg.torque_at(2100.0) < cfg.torque_at(2400.0) + 0.001, "2100 rpm = %.1f Nm" % cfg.torque_at(2100.0))
-	var st := EngineState.new(cfg)
-	st.rpm = cfg.redline_rpm + 150.0
-	check("engine: rev limiter cuts torque", near(st.output_torque(), 0.0, 0.01), "%.1f Nm above redline" % st.output_torque())
-	var pw: float = cfg.torque_at(3000.0) * Units.omega_from_rpm(3000.0) / 1000.0
-	check("engine: power = torque x omega", near(pw, 278.0 * 314.159 / 1000.0, 0.5), "%.1f kW at 3000 rpm" % pw)
-	var st2 := EngineState.new(cfg)
-	st2.rpm = 3000.0
-	check("engine: engine braking with closed throttle", st2.braking_torque() > 10.0, "%.1f Nm" % st2.braking_torque())
-	st2.throttle = 1.0
-	check("engine: engine braking fades on throttle", st2.braking_torque() < st2.braking_torque() + 0.001, "%.1f Nm at WOT" % st2.braking_torque())
+# ------------------------------------------------------- A. track profiles ---
 
-# ---------------------------------------------------------------- gearbox ---
+func _test_a_track_quality() -> void:
+	_section("A. Track quality (authored profiles)")
+	_check("A. catalogue has 15 tracks", Content.tracks.size() == 15,
+		"%d tracks" % Content.tracks.size())
 
-func _test_gearbox() -> void:
-	var def: VehicleDef = Content.vehicle_by_id("ranger_4x4")
-	var gb: GearboxState = GearboxState.new(def.gearbox)
-	gb.reset(1)
-	check("gearbox: 1st ratio multiplies torque", gb.total_ratio() > 10.0, "total %.2f" % gb.total_ratio())
-	gb.request_gear(4, true)
-	gb.update(1.0)
-	var fourth: float = gb.total_ratio()
-	check("gearbox: 4th is taller than 1st", fourth < 10.0, "total %.2f" % fourth)
-	gb.request_gear(0, true)
-	check("gearbox: neutral transmits nothing", near(gb.total_ratio(), 0.0, 0.0001), "ratio 0")
-	gb.request_gear(-1, true)
-	gb.update(1.0)
-	check("gearbox: reverse is negative", gb.total_ratio() < 0.0, "total %.2f" % gb.total_ratio())
-	var gb2: GearboxState = GearboxState.new(def.gearbox)
-	gb2.reset(1)
-	gb2.shift_up()
-	check("gearbox: shift interrupts torque", gb2.is_shifting() and near(gb2.effective_ratio(), 0.0, 0.0001), "shift timer %.2f s" % gb2.shift_timer)
-	gb2.update(0.30)
-	check("gearbox: torque returns after shift", not gb2.is_shifting() and gb2.effective_ratio() > 0.0, "gear %d" % gb2.gear)
-	var top: float = def.gearbox.top_speed_mps(def.tire_rear.radius_m, def.engine.max_rpm)
-	check("gearbox: top speed is plausible", top > 25.0 and top < 80.0, "%.1f m/s theoretical" % top)
+	for track: TrackDef in Content.tracks:
+		var tag: String = "A[%s]" % track.id
+		var profile: TrackProfile = track.profile()
+		var length_m: float = track.length_m()
 
-# ------------------------------------------------------------------ tyres ---
+		# C1: the slope must be identical on both sides of every knot.
+		var worst_step: float = 0.0
+		var worst_step_x: float = 0.0
+		for knot: Vector2 in profile.knots():
+			var before: float = profile.slope_at(knot.x - C1_EPS_M)
+			var after: float = profile.slope_at(knot.x + C1_EPS_M)
+			var delta: float = absf(after - before)
+			if delta > worst_step:
+				worst_step = delta
+				worst_step_x = knot.x
+		_check("%s C1-continuous profile" % tag, worst_step < C1_TOLERANCE,
+			"worst slope step %s at %s m" % [_f(worst_step, 5), _f(worst_step_x, 1)])
 
-func _test_tires() -> void:
-	var tire: TireConfig = Content.vehicle_by_id("ranger_4x4").tire_rear
-	var w := WheelAxis.new(1, tire)
-	w.normal_load = 4000.0
-	w.omega = 0.0
-	w.update_slip(0.0)
-	var f0: float = w.compute_force(0.86)
-	check("tyre: zero slip has no force", near(f0, 0.0, 0.1), "%.2f N" % f0)
-	# Peak around 14% slip
-	w.omega = (tire.peak_slip * 5.0) / tire.radius_m
-	w.update_slip(5.0)
-	var f_peak: float = absf(w.compute_force(0.86, 0.68))
-	check("tyre: peak force at peak slip", f_peak > 2500.0, "%.0f N at slip %.2f" % [f_peak, w.slip_ratio])
-	var limit: float = 0.86 * 4000.0
-	check("tyre: force never exceeds mu*N", f_peak <= limit + 1.0, "%.0f N <= %.0f N" % [f_peak, limit])
-	w.omega = 120.0
-	w.update_slip(4.0)
-	var f_slide: float = absf(w.compute_force(0.86, 0.68))
-	check("tyre: sliding force below peak", f_slide < f_peak, "%.0f N sliding vs %.0f N peak" % [f_slide, f_peak])
-	var wet := WheelAxis.new(1, tire)
-	wet.normal_load = 4000.0
-	wet.omega = 120.0
-	wet.update_slip(4.0)
-	var f_ice: float = absf(wet.compute_force(0.15))
-	check("tyre: ice grip much lower", f_ice < f_peak * 0.3, "%.0f N on ice vs %.0f N dry" % [f_ice, f_peak])
+		# No vertical step: a 0.35 m sample may never climb half a metre.
+		var max_rise: float = 0.0
+		var max_rise_x: float = 0.0
+		var x: float = 0.0
+		while x + SAMPLE_STEP_M <= length_m:
+			var rise: float = absf(track.elevation_at(x + SAMPLE_STEP_M) - track.elevation_at(x))
+			if rise > max_rise:
+				max_rise = rise
+				max_rise_x = x
+			x += SAMPLE_STEP_M
+		_check("%s no vertical step" % tag, max_rise < MAX_STEP_RISE_M,
+			"max %s m per 0.35 m at %s m" % [_f(max_rise, 4), _f(max_rise_x, 1)])
 
-# -------------------------------------------------------------- world setup ---
+		_check("%s longer than 300 m" % tag, length_m > MIN_TRACK_LENGTH_M,
+			"%s m" % _f(length_m, 1))
 
-func _make_stage(angle_deg: float, length_m: float, surface_id: String) -> StageDef:
-	var s := StageDef.new()
-	s.id = "test_%.0f_%s" % [angle_deg, surface_id]
-	s.environment = "canyon"
-	s.length_m = length_m
-	s.noise_amplitude = 0.0
-	s.decor_density = 0.0
-	var rise: float = length_m * tan(deg_to_rad(angle_deg))
-	s.points = PackedVector2Array([Vector2(0, 0), Vector2(length_m * 0.5, rise * 0.5), Vector2(length_m, rise)])
-	s.surface_spans = [{"from": 0.0, "to": length_m + 20.0, "surface": surface_id}]
-	s.checkpoints = PackedFloat32Array()
-	s.obstacles = []
-	return s
+		var stats: Dictionary = track.stats()
+		var max_grade: float = float(stats["max_grade_deg"])
+		_check("%s max grade <= 30 deg" % tag, max_grade <= MAX_GRADE_DEG,
+			"%s deg" % _f(max_grade, 2))
 
-func _spawn(angle_deg: float, surface_id: String, vehicle_id: String, gear: int,
-		def_override: VehicleDef = null) -> Dictionary:
-	if _arena != null and is_instance_valid(_arena):
-		_arena.queue_free()
-		await get_tree().process_frame
-	_arena = Node2D.new()
-	add_child(_arena)
-	var stage: StageDef = _make_stage(angle_deg, 260.0, surface_id)
-	var terrain := TerrainBuilder.new()
-	_arena.add_child(terrain)
-	terrain.build(stage, Content.surfaces)
-	var def: VehicleDef = def_override if def_override != null else Content.vehicle_by_id(vehicle_id)
-	var veh := VehicleBody.new()
-	_arena.add_child(veh)
-	veh.setup(def, Content.surfaces)
-	veh.attach_surface_probe(terrain)
-	veh.global_transform = terrain.start_transform()
-	veh.gearbox.reset(gear)
-	veh.damage.reset()
-	veh.controls_locked = false
-	veh.set_inputs(0.0, 0.0, 0.0, 1.0)
-	veh.auto_transmission = false
-	await get_tree().physics_frame
-	return {"vehicle": veh, "terrain": terrain, "stage": stage, "start_y": veh.global_position.y, "start_x": veh.global_position.x}
+		# Checkpoints: strictly increasing and inside the drivable road.
+		var ordered: bool = true
+		var order_detail: String = "no checkpoints"
+		var last_cp: float = -100000.0
+		for cp: float in track.checkpoints:
+			if cp <= last_cp:
+				ordered = false
+				order_detail = "%s m after %s m" % [_f(cp, 1), _f(last_cp, 1)]
+			last_cp = cp
+		if track.checkpoints.size() > 1:
+			order_detail = "%d checkpoints, %s m .. %s m" % [
+				track.checkpoints.size(), _f(track.checkpoints[0], 1), _f(last_cp, 1),
+			]
+		_check("%s checkpoints strictly increasing" % tag, ordered, order_detail)
 
-func _sim(veh: VehicleBody, seconds: float, throttle: float, brake: float = 0.0,
-		handbrake: float = 0.0, clutch: float = 1.0) -> void:
-	var steps: int = int(seconds * float(Engine.physics_ticks_per_second))
+		var inside: bool = true
+		var inside_detail: String = ""
+		var lo: float = track.start_x_m() + 5.0
+		var hi: float = track.finish_x_m() - 5.0
+		for cp: float in track.checkpoints:
+			if cp < lo or cp > hi:
+				inside = false
+				inside_detail = "%s m outside [%s, %s]" % [_f(cp, 1), _f(lo, 1), _f(hi, 1)]
+		if inside_detail.is_empty():
+			inside_detail = "window [%s, %s] m" % [_f(lo, 1), _f(hi, 1)]
+		_check("%s checkpoints inside the road" % tag, inside, inside_detail)
+
+		_check("%s finish reachable" % tag, track.finish_x_m() < length_m,
+			"finish %s m of %s m" % [_f(track.finish_x_m(), 1), _f(length_m, 1)])
+
+		# Surface sections must tile [0, length] exactly: no gap, no overlap.
+		var covered: bool = true
+		var cover_detail: String = ""
+		var cursor: float = 0.0
+		for section: Dictionary in track.surface_sections:
+			var from_x: float = float(section.get("from", 0.0))
+			var to_x: float = float(section.get("to", 0.0))
+			if absf(from_x - cursor) > 0.01:
+				covered = false
+				cover_detail = "section starts at %s m, previous ended at %s m" % [
+					_f(from_x, 1), _f(cursor, 1),
+				]
+				break
+			if to_x <= from_x:
+				covered = false
+				cover_detail = "empty/negative section %s..%s" % [_f(from_x, 1), _f(to_x, 1)]
+				break
+			cursor = to_x
+		if covered and absf(cursor - length_m) > 0.01:
+			covered = false
+			cover_detail = "surfaces end at %s m, track is %s m" % [
+				_f(cursor, 1), _f(length_m, 1),
+			]
+		if cover_detail.is_empty():
+			cover_detail = "%d sections 0..%s m" % [track.surface_sections.size(), _f(cursor, 1)]
+		_check("%s surfaces cover the whole length" % tag, covered, cover_detail)
+
+		_check("%s is_valid_layout()" % tag, track.is_valid_layout(),
+			"%d segments, %s m" % [track.profile_segments.size(), _f(length_m, 1)])
+
+		var gain: float = float(stats["elevation_gain_m"])
+		_check("%s stats() elevation gain > 0" % tag, gain > 0.0,
+			"+%s m, -%s m, net %s m" % [
+				_f(gain, 1), _f(float(stats["elevation_descent_m"]), 1),
+				_f(float(stats["net_elevation_m"]), 1),
+			])
+
+		var distribution: Dictionary = track.surface_distribution()
+		var sum_pct: float = 0.0
+		for sid: String in distribution.keys():
+			sum_pct += float(distribution[sid])
+		_check("%s surface distribution sums to 100%%" % tag,
+			absf(sum_pct - 100.0) <= 0.5, "%s %% over %d surfaces" % [
+				_f(sum_pct, 2), distribution.size(),
+			])
+
+# ------------------------------------------------ B. the "no obstacles" rule ---
+
+func _collect_shapes(node: Node, out: Array[CollisionShape2D]) -> void:
+	for child: Node in node.get_children():
+		if child is CollisionShape2D:
+			out.append(child as CollisionShape2D)
+		_collect_shapes(child, out)
+
+func _sprite_with_collider(node: Node, offenders: Array[String]) -> void:
+	for child: Node in node.get_children():
+		if child is Sprite2D:
+			var shapes: Array[CollisionShape2D] = []
+			_collect_shapes(child, shapes)
+			if not shapes.is_empty():
+				offenders.append("%s(%d)" % [child.name, shapes.size()])
+		_sprite_with_collider(child, offenders)
+
+func _test_b_terrain() -> void:
+	_section("B. No standalone physical obstacles (TerrainBuilder in a SceneTree)")
+	var track: TrackDef = Content.track_by_id("zagros_01")
+	_check("B. representative track available", track != null, "zagros_01")
+
+	# scripts/race/race_scene.gd instantiates TerrainBuilder by its global class
+	# name, so the name must resolve to the 3.0 track builder in scripts/terrain.
+	# (A leftover 2.0 StageDef builder in scripts/stages used to shadow it.)
+	var global_script: Variant = TerrainBuilder
+	var global_script_path: String = ""
+	if global_script is Script:
+		global_script_path = (global_script as Script).resource_path
+	_check("B. global TerrainBuilder resolves to the track builder",
+		global_script_path == "res://scripts/terrain/terrain_builder.gd", global_script_path)
+
+	var terrain_script: Script = load("res://scripts/terrain/terrain_builder.gd")
+	var compiles: bool = terrain_script != null and terrain_script.can_instantiate()
+	_check("B. track terrain builder compiles", compiles,
+		"res://scripts/terrain/terrain_builder.gd did not load" if terrain_script == null
+		else "load() returned a script that cannot be instantiated (parse error)")
+	if not compiles:
+		# The builder cannot run, so none of its runtime contracts can be proven.
+		# Every blocked assertion is reported as a failure, never as a pass.
+		var blocked: String = "blocked: scripts/terrain/terrain_builder.gd does not compile"
+		_check("B. obstacle_collider_count() == 0", false, blocked)
+		_check("B. decor_collider_count() == 0", false, blocked)
+		_check("B. terrain has decoration to draw", false, blocked)
+		_check("B. three StaticBody2D: road + two end walls", false, blocked)
+		_check("B. exactly one road StaticBody2D", false, blocked)
+		_check("B. other bodies are the two end walls", false, blocked)
+		_check("B. decorative sprites carry no CollisionShape2D", false, blocked)
+		_check("B. physical CollisionShape2D count is exactly 3", false, blocked)
+		_check("B. every non-physical shape is a gate trigger", false, blocked)
+		return
+	var terrain: Variant = terrain_script.new()
+	terrain.name = "TestTerrain"
+	add_child(terrain)
+	terrain.build(track, Content.surfaces)
+	await get_tree().process_frame
+
+	_check("B. obstacle_collider_count() == 0", terrain.obstacle_collider_count() == 0,
+		"%d" % terrain.obstacle_collider_count())
+	_check("B. decor_collider_count() == 0", terrain.decor_collider_count() == 0,
+		"%d" % terrain.decor_collider_count())
+	_check("B. terrain has decoration to draw", terrain.decor_count() > 0,
+		"%d decor sprites" % terrain.decor_count())
+
+	# Every StaticBody2D is either the single road body or one of the two end walls.
+	var bodies: Array[StaticBody2D] = []
+	for child: Node in terrain.get_children():
+		if child is StaticBody2D:
+			bodies.append(child as StaticBody2D)
+	var road_bodies: int = 0
+	var wall_bodies: int = 0
+	var stray_bodies: Array[String] = []
+	for body: StaticBody2D in bodies:
+		if body.name == "TrackBody" and body.get_child_count() == 1:
+			road_bodies += 1
+			continue
+		# An end wall: one rectangle shape, placed outside the racing surface.
+		var ok_wall: bool = body.get_child_count() == 1
+		var wall_detail: String = ""
+		for shape_child: Node in body.get_children():
+			if shape_child is CollisionShape2D:
+				var cs := shape_child as CollisionShape2D
+				if not (cs.shape is RectangleShape2D):
+					ok_wall = false
+					wall_detail = "shape is %s" % cs.shape
+					continue
+				var rect := cs.shape as RectangleShape2D
+				var wall_x_m: float = cs.position.x / Units.PPM
+				var near_start: bool = absf(wall_x_m + 6.0) < 0.01
+				var near_finish: bool = absf(wall_x_m - (track.length_m() + 6.0)) < 0.01
+				if not (near_start or near_finish):
+					ok_wall = false
+					wall_detail = "wall at %s m" % _f(wall_x_m, 1)
+				if rect.size.y < 10.0 * Units.PPM:
+					ok_wall = false
+					wall_detail = "wall only %s m tall" % _f(rect.size.y / Units.PPM, 1)
+		if ok_wall:
+			wall_bodies += 1
+		else:
+			stray_bodies.append("%s %s" % [body.name, wall_detail])
+	_check("B. three StaticBody2D: road + two end walls", bodies.size() == 3,
+		"%d bodies" % bodies.size())
+	_check("B. exactly one road StaticBody2D", road_bodies == 1, "%d" % road_bodies)
+	_check("B. other bodies are the two end walls", wall_bodies == 2 and stray_bodies.is_empty(),
+		"%d walls; unexpected: %s" % [wall_bodies, _join(stray_bodies)])
+
+	var offenders: Array[String] = []
+	_sprite_with_collider(terrain, offenders)
+	_check("B. decorative sprites carry no CollisionShape2D", offenders.is_empty(),
+		"%d offending sprites: %s" % [offenders.size(), _join(offenders)])
+
+	# Physical shapes: the road line plus the two wall rectangles. Gate shapes are
+	# Area2D triggers, so they are counted separately and must stay non-physical.
+	var shapes: Array[CollisionShape2D] = []
+	_collect_shapes(terrain, shapes)
+	var body_shapes: int = 0
+	var gate_shapes: int = 0
+	var stray_shapes: Array[String] = []
+	for shape: CollisionShape2D in shapes:
+		var parent: Node = shape.get_parent()
+		if parent is StaticBody2D or parent is RigidBody2D or parent is CharacterBody2D:
+			body_shapes += 1
+		elif parent is Area2D:
+			gate_shapes += 1
+		else:
+			stray_shapes.append("%s/%s" % [parent.name, shape.name])
+	_check("B. physical CollisionShape2D count is exactly 3", body_shapes == 3,
+		"%d physical, %d gate Area2D triggers, %d total" % [
+			body_shapes, gate_shapes, shapes.size(),
+		])
+	_check("B. every non-physical shape is a gate trigger", stray_shapes.is_empty()
+		and gate_shapes == track.checkpoints.size() + 1,
+		"%d gate shapes for %d checkpoints + finish; stray: %s" % [
+			gate_shapes, track.checkpoints.size(), _join(stray_shapes),
+		])
+
+	terrain.queue_free()
+	await get_tree().process_frame
+
+# ---------------------------------------------------------- C. vehicle data ---
+
+func _test_c_vehicles() -> void:
+	_section("C. Vehicle data")
+	_check("C. five documented vehicles", Content.vehicles.size() == DOC_VEHICLE_IDS.size(),
+		"%d vehicles" % Content.vehicles.size())
+
+	for id: String in DOC_VEHICLE_IDS:
+		var found: VehicleDef = Content.vehicle_by_id(id)
+		_check("C[%s] documented vehicle exists" % id, found != null,
+			"-" if found == null else found.name_en)
+
+	for vehicle: VehicleDef in Content.vehicles:
+		var tag: String = "C[%s]" % vehicle.id
+		_check("%s engine_code" % tag, not vehicle.engine_code.is_empty(), vehicle.engine_code)
+		_check("%s displacement_cc" % tag, vehicle.displacement_cc > 0,
+			"%d cc" % vehicle.displacement_cc)
+		_check("%s gearbox ratios" % tag,
+			vehicle.gearbox != null and vehicle.gearbox.ratios.size() >= 4,
+			"no gearbox" if vehicle.gearbox == null else "%d ratios" % vehicle.gearbox.ratios.size())
+		_check("%s transfer ratios" % tag, vehicle.transfer_ratios.size() >= 2,
+			"%d ratios %s" % [vehicle.transfer_ratios.size(), str(vehicle.transfer_ids)])
+		_check("%s tyre size label" % tag, not vehicle.tyre_size_label.is_empty(),
+			vehicle.tyre_size_label)
+		_check("%s documented power/torque" % tag,
+			vehicle.doc_power_kw > 0.0 and vehicle.doc_torque_nm > 0.0,
+			"%s kW / %s Nm" % [_f(vehicle.doc_power_kw, 1), _f(vehicle.doc_torque_nm, 1)])
+
+		var stock: VehicleDef = GarageModel.stock_build(vehicle)
+		var made_torque: float = stock.peak_torque_nm()
+		var made_power: float = stock.peak_power_kw()
+		var torque_error: float = absf(made_torque - vehicle.doc_torque_nm) / vehicle.doc_torque_nm
+		var power_error: float = absf(made_power - vehicle.doc_power_kw) / vehicle.doc_power_kw
+		_check("%s stock torque within 8%% of doc" % tag, torque_error <= 0.08,
+			"built %s Nm vs doc %s Nm (%s%%)" % [
+				_f(made_torque, 1), _f(vehicle.doc_torque_nm, 1), _f(torque_error * 100.0, 2),
+			])
+		_check("%s stock power within 12%% of doc" % tag, power_error <= 0.12,
+			"built %s kW vs doc %s kW (%s%%)" % [
+				_f(made_power, 1), _f(vehicle.doc_power_kw, 1), _f(power_error * 100.0, 2),
+			])
+
+		var kerb: float = float(vehicle.spec.get("kerb_mass_kg", -1.0))
+		_check("%s base mass is the documented kerb mass" % tag,
+			kerb > 0.0 and absf(vehicle.mass_kg - kerb) < 0.5,
+			"mass %s kg, spec kerb %s kg" % [_f(vehicle.mass_kg, 1), _f(kerb, 1)])
+
+	var mass_clash: String = ""
+	var wb_clash: String = ""
+	for i: int in range(Content.vehicles.size()):
+		for j: int in range(i + 1, Content.vehicles.size()):
+			var a: VehicleDef = Content.vehicles[i]
+			var b: VehicleDef = Content.vehicles[j]
+			if absf(a.mass_kg - b.mass_kg) < 1.0:
+				mass_clash = "%s and %s both %s kg" % [a.id, b.id, _f(a.mass_kg, 0)]
+			if absf(a.wheelbase_m - b.wheelbase_m) < 0.01:
+				wb_clash = "%s and %s both %s m" % [a.id, b.id, _f(a.wheelbase_m, 3)]
+	_check("C. no two vehicles share a mass", mass_clash.is_empty(), mass_clash)
+	_check("C. no two vehicles share a wheelbase", wb_clash.is_empty(), wb_clash)
+
+# ----------------------------------------------------- D. parts and tuning ---
+
+func _sim_climb(build: EngineBuild, seconds: float, speed_mps: float) -> Dictionary:
+	var thermal: ThermalState = ThermalState.new().setup(build, 22.0)
+	var dt: float = 0.05
+	var steps: int = int(round(seconds / dt))
 	for i: int in range(steps):
-		veh.set_inputs(throttle, brake, handbrake, clutch)
-		await get_tree().physics_frame
-
-func _state(veh: VehicleBody) -> Dictionary:
+		thermal.update(dt, build.peak_power_kw, speed_mps, 1.0)
 	return {
-		"x": veh.global_position.x,
-		"y": veh.global_position.y,
-		"rot": veh.rotation,
-		"kmh": veh.speed_kmh(),
-		"rpm": veh.engine.rpm if veh.engine != null else 0.0,
-		"gear": veh.gearbox.gear if veh.gearbox != null else 0,
-		"running": veh.engine.running if veh.engine != null else false,
-		"load": (veh.axles[0].normal_load + veh.axles[1].normal_load) if veh.axles.size() == 2 else 0.0,
-		"comp_f": veh.axles[0].compression if veh.axles.size() == 2 else 0.0,
-		"comp_r": veh.axles[1].compression if veh.axles.size() == 2 else 0.0,
-		"slip_r": veh.axles[1].slip_ratio if veh.axles.size() == 2 else 0.0,
-		"contact": (veh.axles[0].in_contact and veh.axles[1].in_contact) if veh.axles.size() == 2 else false,
+		"temp_c": thermal.coolant_temp_c,
+		"derate": thermal.power_derate(),
+		"heat_in_kw": thermal.heat_in_kw,
+		"heat_out_kw": thermal.heat_out_kw,
 	}
 
-# --------------------------------------------------------------- physics ---
+func _test_d_parts_and_tuning() -> void:
+	_section("D. Parts and tuning")
+	_check("D. part catalogue holds more than 200 parts", Content.part_count() > 200,
+		"%d parts" % Content.part_count())
 
-func _test_physics_static() -> void:
-	var s: Dictionary = await _spawn(0.0, "hard_dirt", "ranger_4x4", 1)
-	var veh: VehicleBody = s["vehicle"]
-	await _sim(veh, 3.0, 0.0)
-	var st: Dictionary = _state(veh)
-	var weight: float = veh.definition.mass_kg * Units.GRAVITY
-	check("suspension: both wheels on ground", bool(st["contact"]), "contacts %s" % str(st["contact"]))
-	check("suspension: static load carries weight", near(float(st["load"]), weight, weight * 0.28), "load %.0f N vs weight %.0f N" % [float(st["load"]), weight])
-	check("suspension: static compression sane", float(st["comp_f"]) > 0.02 and float(st["comp_f"]) < 0.22, "compression %.3f m" % float(st["comp_f"]))
-	check("physics: body stays upright", absf(float(st["rot"])) < 0.12, "rotation %.3f rad" % float(st["rot"]))
-	check("physics: no sinking through terrain", float(st["y"]) < float(s["start_y"]) + 30.0, "y %.1f -> %.1f" % [float(s["start_y"]), float(st["y"])])
+	for vehicle: VehicleDef in Content.vehicles:
+		var missing: Array[String] = []
+		for slot: int in GarageModel.all_slots():
+			if Content.stock_part(vehicle.id, slot) == null:
+				missing.append(_slot_name(slot))
+		_check("D[%s] stock part for every slot" % vehicle.id, missing.is_empty(),
+			"%d slot(s) without a stock part: %s" % [missing.size(), _join(missing)])
 
-func _test_acceleration() -> void:
-	var s: Dictionary = await _spawn(0.0, "hard_dirt", "ranger_4x4", 1)
-	var veh: VehicleBody = s["vehicle"]
-	await _sim(veh, 4.0, 1.0)
-	var st: Dictionary = _state(veh)
-	var x_start: float = float(s["start_x"])
-	var moved: float = (float(st["x"]) - x_start) / Units.PPM
-	check("acceleration: vehicle moves forward", moved > 8.0, "%.1f m in 4 s" % moved)
-	check("acceleration: reaches useful speed", float(st["kmh"]) > 18.0, "%.1f km/h" % float(st["kmh"]))
-	check("acceleration: engine stays below redline", float(st["rpm"]) <= veh.definition.engine.redline_rpm * 1.03, "%.0f rpm" % float(st["rpm"]))
-	check("acceleration: rpm above idle", float(st["rpm"]) > veh.definition.engine.idle_rpm, "%.0f rpm" % float(st["rpm"]))
+	var hilux: VehicleDef = Content.vehicle_by_id("hilux_an120")
+	var stock: VehicleDef = GarageModel.stock_build(hilux)
+	# A turbo can only make what the ECU asks for, so the ECU tune is held constant
+	# on both sides of the fuel comparison: the only variable is the injector set.
+	var turbo_diesels: Array[String] = ["hilux_an120", "patrol_y61", "pajero_v80"]
+	for vid: String in turbo_diesels:
+		var base: VehicleDef = Content.vehicle_by_id(vid)
+		var base_stock: VehicleDef = GarageModel.stock_build(base)
+		var blown: VehicleDef = GarageModel.build(base, _fit({
+			PartDef.Slot.TURBO: "%s_turbo_hybrid" % vid,
+			PartDef.Slot.ECU: "%s_ecu_2" % vid,
+		}))
+		var fuelled: VehicleDef = GarageModel.build(base, _fit({
+			PartDef.Slot.TURBO: "%s_turbo_hybrid" % vid,
+			PartDef.Slot.ECU: "%s_ecu_2" % vid,
+			PartDef.Slot.INJECTORS: "%s_inj_30" % vid,
+		}))
+		_check("D[%s] hybrid turbo raises peak torque" % vid,
+			blown.peak_torque_nm() > base_stock.peak_torque_nm() + 1.0,
+			"%s Nm -> %s Nm" % [
+				_f(base_stock.peak_torque_nm(), 1), _f(blown.peak_torque_nm(), 1),
+			])
+		_check("D[%s] +30%% injectors let the turbo make more power" % vid,
+			fuelled.peak_power_kw() > blown.peak_power_kw() + 0.5,
+			"%s kW -> %s kW (stock %s kW)" % [
+				_f(blown.peak_power_kw(), 1), _f(fuelled.peak_power_kw(), 1),
+				_f(base_stock.peak_power_kw(), 1),
+			])
 
-func _climb_height(vehicle_id: String, angle: float, gear: int, surface: String, seconds: float) -> float:
-	var s: Dictionary = await _spawn(angle, surface, vehicle_id, gear)
-	var veh: VehicleBody = s["vehicle"]
-	await _sim(veh, seconds, 1.0)
-	var st: Dictionary = _state(veh)
-	var gained: float = (float(s["start_y"]) - float(st["y"])) / Units.PPM
-	print("      [climb] %s %.0f deg gear %d %s: +%.2f m  %.1f km/h  rpm %.0f  slipR %+.2f  load %.0f N  run=%s" % [
-		vehicle_id, angle, gear, surface, gained, float(st["kmh"]), float(st["rpm"]),
-		float(st["slip_r"]), float(st["load"]), str(st["running"])])
-	_arena.queue_free()
-	await get_tree().process_frame
-	return gained
+	var ic_stock: VehicleDef = GarageModel.build(hilux, _fit({
+		PartDef.Slot.TURBO: "hilux_an120_turbo_big",
+		PartDef.Slot.ECU: "hilux_an120_ecu_2",
+		PartDef.Slot.BLOCK: "hilux_an120_block_c",
+		PartDef.Slot.PISTONS: "hilux_an120_pist_c",
+	}))
+	var ic_big: VehicleDef = GarageModel.build(hilux, _fit({
+		PartDef.Slot.TURBO: "hilux_an120_turbo_big",
+		PartDef.Slot.ECU: "hilux_an120_ecu_2",
+		PartDef.Slot.BLOCK: "hilux_an120_block_c",
+		PartDef.Slot.PISTONS: "hilux_an120_pist_c",
+		PartDef.Slot.INTERCOOLER: "hilux_an120_ic_fmic",
+	}))
+	_check("D. bigger intercooler lowers charge temperature",
+		ic_big.engine_build.charge_temp_c < ic_stock.engine_build.charge_temp_c - 1.0,
+		"%s C -> %s C" % [
+			_f(ic_stock.engine_build.charge_temp_c, 1),
+			_f(ic_big.engine_build.charge_temp_c, 1),
+		])
 
-func _test_hill_climb() -> void:
-	var g1: float = await _climb_height("ranger_4x4", 20.0, 1, "hard_dirt", 5.0)
-	var g4: float = await _climb_height("ranger_4x4", 20.0, 4, "hard_dirt", 5.0)
-	check("hill: first gear climbs 20 deg", g1 > 4.0, "gained %.2f m in 5 s" % g1)
-	check("hill: low gear out-climbs high gear", g1 > g4 + 0.5, "1st %.2f m vs 4th %.2f m" % [g1, g4])
-	check("hill: high gear cannot teleport uphill", g4 < g1, "4th gained %.2f m" % g4)
+	var rad_stock: VehicleDef = GarageModel.build(hilux, _fit({
+		PartDef.Slot.TURBO: "hilux_an120_turbo_big",
+		PartDef.Slot.ECU: "hilux_an120_ecu_2",
+		PartDef.Slot.BLOCK: "hilux_an120_block_c",
+		PartDef.Slot.PISTONS: "hilux_an120_pist_c",
+		PartDef.Slot.INJECTORS: "hilux_an120_inj_30",
+		PartDef.Slot.FUEL_PUMP: "hilux_an120_pump_race",
+		PartDef.Slot.INTERCOOLER: "hilux_an120_ic_race",
+	}))
+	var rad_big: VehicleDef = GarageModel.build(hilux, _fit({
+		PartDef.Slot.TURBO: "hilux_an120_turbo_big",
+		PartDef.Slot.ECU: "hilux_an120_ecu_2",
+		PartDef.Slot.BLOCK: "hilux_an120_block_c",
+		PartDef.Slot.PISTONS: "hilux_an120_pist_c",
+		PartDef.Slot.INJECTORS: "hilux_an120_inj_30",
+		PartDef.Slot.FUEL_PUMP: "hilux_an120_pump_race",
+		PartDef.Slot.INTERCOOLER: "hilux_an120_ic_race",
+		PartDef.Slot.RADIATOR: "hilux_an120_rad_race",
+	}))
+	var climb_small: Dictionary = _sim_climb(rad_stock.engine_build, 120.0, 6.0)
+	var climb_large: Dictionary = _sim_climb(rad_big.engine_build, 120.0, 6.0)
+	_check("D. bigger radiator lowers the 120 s climb temperature",
+		float(climb_large["temp_c"]) < float(climb_small["temp_c"]) - 1.0,
+		"%s C -> %s C" % [
+			_f(float(climb_small["temp_c"]), 1), _f(float(climb_large["temp_c"]), 1),
+		])
 
-	var steep: float = await _climb_height("ranger_4x4", 28.0, 1, "hard_dirt", 5.0)
-	check("hill: 28 deg is harder than 20 deg", steep < g1 + 0.2, "28 deg gained %.2f m" % steep)
+	# Shorter final drive: more wheel torque in first, less top speed.
+	var base_profile: TransmissionProfile = hilux.transmission_by_id("hilux_m6")
+	var short_profile: TransmissionProfile = base_profile.duplicate_profile()
+	short_profile.final_drive = base_profile.final_drive * 1.15
+	var crank_torque: float = stock.peak_torque_nm()
+	var wheel_stock: float = crank_torque * base_profile.total_ratio(1, 1.0) * base_profile.efficiency
+	var wheel_short: float = crank_torque * short_profile.total_ratio(1, 1.0) * short_profile.efficiency
+	_check("D. shorter final drive raises 1st-gear wheel torque", wheel_short > wheel_stock * 1.10,
+		"%s Nm -> %s Nm" % [_f(wheel_stock, 0), _f(wheel_short, 0)])
+	var radius: float = stock.tire_rear.radius_m
+	var max_rpm: float = stock.engine.max_rpm
+	_check("D. shorter final drive lowers top speed",
+		short_profile.top_speed_mps(radius, max_rpm) < base_profile.top_speed_mps(radius, max_rpm) * 0.95,
+		"%s m/s -> %s m/s" % [
+			_f(base_profile.top_speed_mps(radius, max_rpm), 2),
+			_f(short_profile.top_speed_mps(radius, max_rpm), 2),
+		])
 
-func _test_grip_limit() -> void:
-	var ice: float = await _climb_height("ranger_4x4", 20.0, 1, "ice", 5.0)
-	var rock: float = await _climb_height("ranger_4x4", 20.0, 1, "rock", 5.0)
-	check("grip: ice prevents the climb", ice < 1.2, "ice gained %.2f m" % ice)
-	check("grip: rock allows the climb", rock > ice + 1.0, "rock %.2f m vs ice %.2f m" % [rock, ice])
+	# Larger tyre radius changes gearing for the same rpm.
+	var big_tyre: VehicleDef = GarageModel.build(hilux, _fit({
+		PartDef.Slot.TYRES: "hilux_an120_tyre_mt_xl",
+	}))
+	_check("D. oversize tyre has a larger radius",
+		big_tyre.tire_rear.radius_m > stock.tire_rear.radius_m + 0.01,
+		"%s m -> %s m" % [
+			_f(stock.tire_rear.radius_m, 4), _f(big_tyre.tire_rear.radius_m, 4),
+		])
+	var top_stock: float = base_profile.top_speed_mps(stock.tire_rear.radius_m, max_rpm)
+	var top_big: float = base_profile.top_speed_mps(big_tyre.tire_rear.radius_m, max_rpm)
+	_check("D. larger tyre radius raises top speed at the same rpm", top_big > top_stock * 1.02,
+		"%s m/s -> %s m/s" % [_f(top_stock, 2), _f(top_big, 2)])
 
-func _test_mass_effect() -> void:
-	var light: float = await _climb_height("ranger_4x4", 18.0, 1, "gravel", 4.0)
-	var heavy_def: VehicleDef = Content.vehicle_by_id("ranger_4x4").duplicate_def()
-	heavy_def.mass_kg += 900.0
-	var s: Dictionary = await _spawn(18.0, "gravel", "ranger_4x4", 1, heavy_def)
-	var veh: VehicleBody = s["vehicle"]
-	await _sim(veh, 4.0, 1.0)
-	var st: Dictionary = _state(veh)
-	var heavy: float = (float(s["start_y"]) - float(st["y"])) / Units.PPM
-	_arena.queue_free()
-	await get_tree().process_frame
-	check("mass: heavier vehicle climbs less", heavy < light + 0.2, "light %.2f m vs +900 kg %.2f m" % [light, heavy])
+	# Compatibility: an under-rated gearbox must be refused.
+	var weak_box := PartDef.new()
+	weak_box.id = "test_underrated_gearbox"
+	weak_box.slot = PartDef.Slot.GEARBOX
+	weak_box.name_en = "Test under-rated gearbox"
+	weak_box.fits_vehicles = PackedStringArray([hilux.id])
+	weak_box.params = {
+		"ratios": [3.2, 2.0, 1.4, 1.0], "final_drive": 3.5, "shift_time": 0.3,
+		"max_torque_nm": stock.peak_torque_nm() * 0.5,
+	}
+	var box_verdict: Dictionary = PartCompatibility.check(hilux, GarageModel.empty_config(), weak_box)
+	_check("D. compatibility rejects an under-rated gearbox",
+		not bool(box_verdict["ok"]) and not (box_verdict["reasons"] as Array).is_empty(),
+		"%s" % str(box_verdict["reasons"]))
 
-func _test_wheel_radius() -> void:
-	var small_def: VehicleDef = Content.vehicle_by_id("ranger_4x4").duplicate_def()
-	small_def.tire_front.radius_m = 0.28
-	small_def.tire_rear.radius_m = 0.28
-	var big_def: VehicleDef = Content.vehicle_by_id("ranger_4x4").duplicate_def()
-	big_def.tire_front.radius_m = 0.50
-	big_def.tire_rear.radius_m = 0.50
-	var s1: Dictionary = await _spawn(0.0, "hard_dirt", "ranger_4x4", 1, small_def)
-	await _sim(s1["vehicle"], 3.0, 1.0)
-	var small: Dictionary = _state(s1["vehicle"])
-	_arena.queue_free()
-	await get_tree().process_frame
-	var s2: Dictionary = await _spawn(0.0, "hard_dirt", "ranger_4x4", 1, big_def)
-	await _sim(s2["vehicle"], 3.0, 1.0)
-	var big: Dictionary = _state(s2["vehicle"])
-	_arena.queue_free()
-	await get_tree().process_frame
-	check("wheel radius: changes wheel torque to force", absf(float(small["kmh"]) - float(big["kmh"])) > 1.0, "r0.28 %.1f km/h vs r0.50 %.1f km/h" % [float(small["kmh"]), float(big["kmh"])])
+	# Compatibility: an oversize tyre needs a lift kit.
+	var oversize: PartDef = Content.part_by_id("hilux_an120_tyre_mt_xl")
+	var no_lift_verdict: Dictionary = PartCompatibility.check(
+		hilux, GarageModel.empty_config(), oversize)
+	var lift_verdict: Dictionary = PartCompatibility.check(
+		hilux, _fit({PartDef.Slot.LIFT_KIT: "hilux_an120_lift_50"}), oversize)
+	_check("D. compatibility rejects a tyre that needs a lift kit",
+		not bool(no_lift_verdict["ok"]), str(no_lift_verdict["reasons"]))
+	_check("D. the same tyre is accepted with a 50 mm lift kit",
+		bool(lift_verdict["ok"]), str(lift_verdict["reasons"]))
 
-func _test_engine_braking() -> void:
-	var s1: Dictionary = await _spawn(-14.0, "hard_dirt", "ranger_4x4", 1)
-	await _sim(s1["vehicle"], 4.0, 0.0)
-	var geared: Dictionary = _state(s1["vehicle"])
-	_arena.queue_free()
-	await get_tree().process_frame
-	var s2: Dictionary = await _spawn(-14.0, "hard_dirt", "ranger_4x4", 0)
-	await _sim(s2["vehicle"], 4.0, 0.0)
-	var neutral: Dictionary = _state(s2["vehicle"])
-	_arena.queue_free()
-	await get_tree().process_frame
-	check("downhill: engine braking limits speed", float(geared["kmh"]) < float(neutral["kmh"]) + 0.5, "in gear %.1f km/h vs neutral %.1f km/h" % [float(geared["kmh"]), float(neutral["kmh"])])
+	# Ownership: installing a part the player has not bought must fail. The real
+	# profile is swapped out for the duration of the call and restored untouched;
+	# nothing is written to disk.
+	var real_data: Dictionary = SaveManager.data.duplicate(true)
+	SaveManager.data = {
+		"version": 5, "credits": 5000, "xp": 0,
+		"selected_vehicle": "jimny_jb74", "owned_vehicles": ["jimny_jb74"],
+		"records": {}, "play_time_s": 0.0, "distance_m": 0.0,
+		"garage": {"jimny_jb74": {"parts": {}, "owned": [], "condition": {}, "presets": {}}},
+	}
+	var install: Dictionary = SaveManager.install_part("jimny_jb74", "jimny_jb74_turbo_kit")
+	var owned_after: bool = SaveManager.is_part_owned("jimny_jb74", "jimny_jb74_turbo_kit")
+	SaveManager.data = real_data
+	var refusal: String = ""
+	if not (install.get("reasons", []) as Array).is_empty():
+		var first: Variant = (install["reasons"] as Array)[0]
+		if first is Dictionary:
+			refusal = String((first as Dictionary).get("en", ""))
+	_check("D. installing a part that is not owned fails",
+		not bool(install["ok"]) and not owned_after and refusal.contains("purchased"),
+		"ok=%s owned=%s reason=%s" % [str(install["ok"]), str(owned_after), refusal])
 
-func _test_landing() -> void:
-	var s: Dictionary = await _spawn(0.0, "hard_dirt", "dune_pickup", 1)
-	var veh: VehicleBody = s["vehicle"]
-	veh.global_position = Vector2(6.0 * Units.PPM, -2.4 * Units.PPM)
-	veh.linear_velocity = Vector2.ZERO
-	await _sim(veh, 3.0, 0.0)
-	var st: Dictionary = _state(veh)
-	check("landing: suspension absorbs the drop", is_finite(float(st["y"])) and is_finite(float(st["rot"])), "y %.1f rot %.3f" % [float(st["y"]), float(st["rot"])])
-	check("landing: settles on both wheels", bool(st["contact"]), "contact %s" % str(st["contact"]))
-	check("landing: compression returns to ride height", float(st["comp_f"]) < 0.24, "comp %.3f m" % float(st["comp_f"]))
-	check("landing: damage taken on hard hit is bounded", veh.damage.chassis > 0.0, "chassis %.2f" % veh.damage.chassis)
+# ------------------------------------------------------------- E. thermal ---
 
-func _test_stall() -> void:
-	var s: Dictionary = await _spawn(0.0, "hard_dirt", "dune_pickup", 4)
-	var veh: VehicleBody = s["vehicle"]
-	veh.manual_clutch_enabled = true
-	veh.auto_clutch = false
-	await _sim(veh, 4.0, 0.0, 1.0, 0.0, 1.0)
-	var st: Dictionary = _state(veh)
-	check("stall: engine dies under load at rest", not bool(st["running"]), "running %s rpm %.0f" % [str(st["running"]), float(st["rpm"])])
-	veh.restart_engine()
-	await _sim(veh, 0.5, 0.0, 0.0, 0.0, 0.0)
-	check("stall: engine restarts", veh.engine.running, "rpm %.0f" % veh.engine.rpm)
+func _test_e_thermal() -> void:
+	_section("E. Thermal model")
+	var hilux: VehicleDef = Content.vehicle_by_id("hilux_an120")
+	var stock: VehicleDef = GarageModel.stock_build(hilux)
+	var big_turbo: VehicleDef = GarageModel.build(hilux, _fit({
+		PartDef.Slot.TURBO: "hilux_an120_turbo_big",
+		PartDef.Slot.ECU: "hilux_an120_ecu_2",
+		PartDef.Slot.BLOCK: "hilux_an120_block_c",
+		PartDef.Slot.PISTONS: "hilux_an120_pist_c",
+		PartDef.Slot.INJECTORS: "hilux_an120_inj_30",
+		PartDef.Slot.FUEL_PUMP: "hilux_an120_pump_race",
+		PartDef.Slot.INTERCOOLER: "hilux_an120_ic_race",
+	}))
+	_check("E. big-turbo build makes more power than stock",
+		big_turbo.peak_power_kw() > stock.peak_power_kw() + 5.0,
+		"%s kW -> %s kW" % [_f(stock.peak_power_kw(), 1), _f(big_turbo.peak_power_kw(), 1)])
 
-# ------------------------------------------------------------- progression ---
+	# A sustained full-power climb in low range: 3 m/s keeps ram-air small, so the
+	# radiator, not the road speed, decides the coolant temperature.
+	var stock_climb: Dictionary = _sim_climb(stock.engine_build, 120.0, 3.0)
+	var turbo_climb: Dictionary = _sim_climb(big_turbo.engine_build, 120.0, 3.0)
+	_check("E. big-turbo build runs hotter than stock on the same radiator",
+		float(turbo_climb["temp_c"]) > float(stock_climb["temp_c"]) + 1.0,
+		"stock %s C (heat %s/%s kW), turbo %s C (heat %s/%s kW)" % [
+			_f(float(stock_climb["temp_c"]), 1),
+			_f(float(stock_climb["heat_in_kw"]), 1), _f(float(stock_climb["heat_out_kw"]), 1),
+			_f(float(turbo_climb["temp_c"]), 1),
+			_f(float(turbo_climb["heat_in_kw"]), 1), _f(float(turbo_climb["heat_out_kw"]), 1),
+		])
 
-func _test_progression() -> void:
-	SaveManager.reset_profile()
-	check("save: fresh profile has credits", SaveManager.credits() >= 600, "%d credits" % SaveManager.credits())
-	check("save: first stage unlocked", SaveManager.is_stage_unlocked("canyon_01"), "canyon_01")
-	check("save: second stage locked", not SaveManager.is_stage_unlocked("canyon_02"), "canyon_02 locked")
+	var thermal: ThermalState = ThermalState.new().setup(stock.engine_build, 22.0)
+	thermal.coolant_temp_c = ThermalState.DERATE_START_C + 1.0
+	var above_threshold: float = thermal.power_derate()
+	thermal.coolant_temp_c = 120.0
+	var at_120: float = thermal.power_derate()
+	thermal.coolant_temp_c = ThermalState.DERATE_START_C - 1.0
+	var below_threshold: float = thermal.power_derate()
+	_check("E. power_derate() == 1.0 below the derate threshold", is_equal_approx(below_threshold, 1.0),
+		"%s at %s C" % [_f(below_threshold, 3), _f(ThermalState.DERATE_START_C - 1.0, 0)])
+	_check("E. power_derate() < 1.0 above the derate threshold", above_threshold < 1.0,
+		"%s at %s C" % [_f(above_threshold, 3), _f(ThermalState.DERATE_START_C + 1.0, 0)])
+	_check("E. power_derate() stays above 0.5 at 120 C", at_120 > 0.5 and at_120 < 1.0,
+		"%s at 120 C" % _f(at_120, 3))
 
-	var st: StageDef = Content.stage_by_id("canyon_01")
-	var out: Dictionary = SaveManager.complete_stage(st, 70.0, 3, "career")
-	check("save: completion recorded", SaveManager.is_completed("canyon_01"), "completed")
-	check("save: best time stored", near(SaveManager.best_time("canyon_01"), 70.0, 0.001), "70.00 s")
-	check("save: medal stored", SaveManager.medal_of("canyon_01") == 3, "gold")
-	check("save: reward paid", int(out.get("credits", 0)) == st.reward_credits, "+%d credits" % int(out.get("credits", 0)))
-	check("save: next stage unlocked", SaveManager.is_stage_unlocked("canyon_02"), "canyon_02")
+# ---------------------------------------------------------------- F. dyno ---
 
-	var saved: int = SaveManager.credits()
-	SaveManager.load_profile()
-	check("save: reload keeps progress", SaveManager.is_completed("canyon_01") and SaveManager.credits() == saved, "%d credits after reload" % SaveManager.credits())
+func _test_f_dyno() -> void:
+	_section("F. Dyno")
+	var hilux: VehicleDef = Content.vehicle_by_id("hilux_an120")
+	var stock: VehicleDef = GarageModel.stock_build(hilux)
+	var tuned: VehicleDef = GarageModel.build(hilux, _fit({
+		PartDef.Slot.TURBO: "hilux_an120_turbo_big",
+		PartDef.Slot.BLOCK: "hilux_an120_block_c",
+		PartDef.Slot.PISTONS: "hilux_an120_pist_c",
+		PartDef.Slot.INJECTORS: "hilux_an120_inj_30",
+		PartDef.Slot.FUEL_PUMP: "hilux_an120_pump_race",
+		PartDef.Slot.INTERCOOLER: "hilux_an120_ic_fmic",
+	}))
+	var ratio: float = 2.423
+	var final_drive: float = 3.583
+	var efficiency: float = 0.90
+	var stock_pull: Dictionary = DynoModel.pull(
+		stock.engine_build, ratio, final_drive, stock.tire_rear.radius_m, efficiency)
+	var tuned_pull: Dictionary = DynoModel.pull(
+		tuned.engine_build, ratio, final_drive, tuned.tire_rear.radius_m, efficiency)
 
-	var base: VehicleDef = Content.vehicle_by_id("rocky_buggy")
-	var before: float = base.engine.peak_torque()
-	SaveManager.add_credits(5000)
-	var blocked_without_tier1: bool = SaveManager.buy_upgrade("rocky_buggy", "engine_2")
-	check("upgrade: tier gating works", not blocked_without_tier1, "engine_2 refused without tier 1")
-	var bought: bool = SaveManager.buy_upgrade("rocky_buggy", "engine_1")
-	check("upgrade: purchase recorded", bought and SaveManager.has_upgrade("rocky_buggy", "engine_1"), "engine_1 owned")
-	var bought2: bool = SaveManager.buy_upgrade("rocky_buggy", "engine_2")
-	check("upgrade: next tier unlocks after previous", bought2, "engine_2 bought after engine_1")
-	var built: VehicleDef = GarageModel.build(base, ["engine_2"])
-	check("upgrade: engine tier raises torque", built.engine.peak_torque() > before * 1.15, "%.0f -> %.0f Nm" % [before, built.engine.peak_torque()])
-	var built2: VehicleDef = GarageModel.build(base, ["tires_2"])
-	check("upgrade: tyre tier raises grip", built2.tire_rear.mu_scale > base.tire_rear.mu_scale, "%.2f -> %.2f mu" % [base.tire_rear.mu_scale, built2.tire_rear.mu_scale])
-	var built3: VehicleDef = GarageModel.build(base, ["chassis_1"])
-	check("upgrade: chassis tier adds mass and durability", built3.mass_kg > base.mass_kg and built3.durability > base.durability, "%.0f kg, dur %.2f" % [built3.mass_kg, built3.durability])
+	var rpm_series: PackedFloat32Array = stock_pull["rpm"] as PackedFloat32Array
+	var torque_series: PackedFloat32Array = stock_pull["torque"] as PackedFloat32Array
+	var power_series: PackedFloat32Array = stock_pull["power"] as PackedFloat32Array
+	var wheel_series: PackedFloat32Array = stock_pull["wheel_torque"] as PackedFloat32Array
+	_check("F. pull() returns equal-length series",
+		rpm_series.size() == torque_series.size() and torque_series.size() == power_series.size()
+		and power_series.size() == wheel_series.size() and rpm_series.size() > 10,
+		"%d/%d/%d/%d samples" % [
+			rpm_series.size(), torque_series.size(), power_series.size(), wheel_series.size(),
+		])
 
-	SaveManager.add_credits(5000)
-	var stage_count: int = Content.stages.size()
-	check("content: sixteen stages authored", stage_count == 16, "%d stages" % stage_count)
-	check("content: four vehicles", Content.vehicles.size() == 4, "%d vehicles" % Content.vehicles.size())
-	check("content: four environments", Content.environments.size() == 4, "%d environments" % Content.environments.size())
-	var env_counts: Array[int] = [0, 0, 0, 0]
-	for s: StageDef in Content.stages:
-		match s.environment:
-			"canyon":
-				env_counts[0] += 1
-			"pine":
-				env_counts[1] += 1
-			"quarry":
-				env_counts[2] += 1
-			"black_ridge":
-				env_counts[3] += 1
-	check("content: four stages per environment", env_counts[0] == 4 and env_counts[1] == 4 and env_counts[2] == 4 and env_counts[3] == 4, str(env_counts))
+	var peak_torque: float = float(stock_pull["peak_torque_nm"])
+	var peak_power: float = float(stock_pull["peak_power_kw"])
+	var torque_error: float = absf(peak_torque - stock.engine_build.peak_torque_nm) \
+		/ stock.engine_build.peak_torque_nm
+	var power_error: float = absf(peak_power - stock.engine_build.peak_power_kw) \
+		/ stock.engine_build.peak_power_kw
+	_check("F. dyno peak torque matches the engine build within 2%%", torque_error <= 0.02,
+		"%s Nm vs %s Nm (%s%%)" % [
+			_f(peak_torque, 1), _f(stock.engine_build.peak_torque_nm, 1),
+			_f(torque_error * 100.0, 2),
+		])
+	_check("F. dyno peak power matches the engine build within 2%%", power_error <= 0.02,
+		"%s kW vs %s kW (%s%%)" % [
+			_f(peak_power, 1), _f(stock.engine_build.peak_power_kw, 1),
+			_f(power_error * 100.0, 2),
+		])
 
-# ------------------------------------------------------------ input contract ---
+	# Spot check three samples: wheel torque = crank torque * gear * final * eff.
+	var wheel_ok: bool = true
+	var wheel_detail: String = ""
+	var checks: Array[int] = [3, rpm_series.size() / 2, rpm_series.size() - 2]
+	for index: int in checks:
+		if index < 0 or index >= wheel_series.size():
+			continue
+		var expected: float = torque_series[index] * ratio * final_drive * efficiency
+		var actual: float = wheel_series[index]
+		if absf(actual - expected) > expected * 0.005:
+			wheel_ok = false
+			wheel_detail = "sample %d: %s vs %s" % [index, _f(actual, 1), _f(expected, 1)]
+	if wheel_detail.is_empty():
+		wheel_detail = "3 samples of %d agree to 0.5%%" % wheel_series.size()
+	_check("F. wheel torque = crank torque * ratio * efficiency", wheel_ok, wheel_detail)
 
-func _test_input_state() -> void:
-	var s := VehicleInputState.new()
-	s.throttle = 1.8
-	s.brake = -0.4
-	s.clutch = 0.5
-	s.handbrake = 2.0
-	s.sanitize()
-	check("input: analog channels clamp", near(s.throttle, 1.0, 0.0001) and near(s.brake, 0.0, 0.0001) and near(s.handbrake, 1.0, 0.0001), s.describe())
-	s.clutch = 0.979
-	check("input: 97.9% clutch is not enough", not s.clutch_fully_pressed(), "%.3f" % s.clutch)
-	s.clutch = 0.98
-	check("input: 98% clutch releases the interlock", s.clutch_fully_pressed(), "%.3f" % s.clutch)
+	var comparison: Dictionary = DynoModel.compare(stock_pull, tuned_pull)
+	_check("F. stock vs tuned comparison reports more power",
+		float(comparison["power_delta_kw"]) > 1.0 and float(comparison["torque_delta_nm"]) > 0.0,
+		"+%s kW (+%s%%), +%s Nm (+%s%%)" % [
+			_f(float(comparison["power_delta_kw"]), 1),
+			_f(float(comparison["power_delta_pct"]), 1),
+			_f(float(comparison["torque_delta_nm"]), 1),
+			_f(float(comparison["torque_delta_pct"]), 1),
+		])
 
-	var touch := VehicleInputState.new()
-	touch.throttle = 0.4
-	touch.clutch = 1.0
-	touch.gear_step = 1
-	touch.recover_requested = true
-	var key := VehicleInputState.new()
-	key.throttle = 0.9
-	key.brake = 0.3
-	touch.merge(key)
-	check("input: merge keeps the strongest throttle", near(touch.throttle, 0.9, 0.0001), "%.2f" % touch.throttle)
-	check("input: merge keeps the pressed clutch", near(touch.clutch, 1.0, 0.0001), "%.2f" % touch.clutch)
-	check("input: merge sums gear steps", touch.gear_step == 1, "step %d" % touch.gear_step)
-	touch.clear_requests()
-	check("input: requests are one-shot", not touch.recover_requested and touch.gear_step == 0, "cleared")
+# -------------------------------------------------------- G. transmission ---
 
-	var copy: VehicleInputState = touch.copy()
-	copy.throttle = 0.0
-	check("input: copy does not alias", touch.throttle > 0.5 and copy.throttle < 0.01, "%.2f vs %.2f" % [touch.throttle, copy.throttle])
+func _test_g_transmission() -> void:
+	_section("G. Transmission")
+	var jimny: VehicleDef = Content.vehicle_by_id("jimny_jb74")
+	var hilux: VehicleDef = Content.vehicle_by_id("hilux_an120")
+	var manual: TransmissionProfile = jimny.transmission_by_id("jimny_m5")
 
-# ------------------------------------------------------------- transmissions ---
+	var h_box := GearboxState.new()
+	h_box.setup(manual)
+	h_box.engine_redline = 6000.0
+	h_box.wheel_radius = jimny.tire_rear.radius_m
+	h_box.reset(1)
+	var reverse_reason: String = h_box.can_engage(-1, 5.0, true)
+	var reverse_worked: bool = h_box.request_gear(-1, false, true, 5.0)
+	_check("G. H-pattern 5-speed refuses reverse while moving forward",
+		reverse_reason == GearboxState.REJECT_REVERSE and not reverse_worked
+		and h_box.gear == 1,
+		"reason '%s', gear %d" % [reverse_reason, h_box.gear])
 
-func _test_transmission_profiles() -> void:
-	var ranger: VehicleDef = Content.vehicle_by_id("ranger_4x4")
-	var buggy: VehicleDef = Content.vehicle_by_id("rocky_buggy")
-	var pickup: VehicleDef = Content.vehicle_by_id("dune_pickup")
-	var titan: VehicleDef = Content.vehicle_by_id("titan_offroad")
+	# Sequential box (the race gearbox part) shifts up and down without a clutch.
+	var seq_built: VehicleDef = GarageModel.build(hilux, _fit({
+		PartDef.Slot.GEARBOX: "hilux_an120_gbox_race",
+	}))
+	var sequential: TransmissionProfile = seq_built.transmissions[0]
+	_check("G. race gearbox is a clutchless sequential box",
+		sequential.kind == TransmissionProfile.Kind.MANUAL_SEQ and not sequential.requires_clutch,
+		"kind %d, requires_clutch %s" % [int(sequential.kind), str(sequential.requires_clutch)])
+	var seq_box := GearboxState.new()
+	seq_box.setup(sequential)
+	seq_box.engine_redline = 4500.0
+	seq_box.wheel_radius = hilux.tire_rear.radius_m
+	seq_box.reset(1)
+	var up: bool = seq_box.shift_up(true, 0.0)
+	seq_box.update(0.5)
+	var up_gear: int = seq_box.gear
+	var down: bool = seq_box.shift_down(true, 0.0)
+	_check("G. sequential box shifts up then down",
+		up and up_gear == 2 and down and seq_box.gear == 1,
+		"1 -> %d -> %d" % [up_gear, seq_box.gear])
 
-	check("transmission: every vehicle has its own box",
-		ranger.stock_transmission_profile().id != titan.stock_transmission_profile().id
-		and buggy.stock_transmission_profile().id != pickup.stock_transmission_profile().id,
-		"%s / %s / %s / %s" % [buggy.stock_transmission_profile().id, ranger.stock_transmission_profile().id,
-			pickup.stock_transmission_profile().id, titan.stock_transmission_profile().id])
-	check("transmission: ranger offers manual and automatic",
-		ranger.transmission_options().size() == 2 and ranger.transmission_by_id("ranger_auto6") != null
-		and ranger.transmission_by_id("ranger_auto6").is_automatic(), "2 options")
-	check("transmission: buggy stock is a clutchless dog box",
-		buggy.stock_transmission_profile().kind == TransmissionProfile.Kind.MANUAL_SEQ
-		and not buggy.stock_transmission_profile().requires_clutch, "sequential")
-	check("transmission: pickup automatic uses a converter",
-		pickup.stock_transmission_profile().uses_converter(), "stall x%.2f" % pickup.stock_transmission_profile().converter_stall_mult)
-	check("transmission: titan has a low range", titan.transfer_ids.has("4L"), str(titan.transfer_ids))
-	check("transmission: ranger has no low-range-less claim", ranger.has_transfer_case(), str(ranger.transfer_ids))
-	check("transmission: torque capacities differ",
-		not is_equal_approx(ranger.stock_transmission_profile().max_torque_nm, titan.stock_transmission_profile().max_torque_nm),
-		"%d vs %d Nm" % [int(ranger.stock_transmission_profile().max_torque_nm), int(titan.stock_transmission_profile().max_torque_nm)])
+	var auto_profile: TransmissionProfile = hilux.transmission_by_id("hilux_a6")
+	var auto_box := GearboxState.new()
+	auto_box.setup(auto_profile)
+	auto_box.engine_redline = 4500.0
+	auto_box.wheel_radius = hilux.tire_rear.radius_m
+	_check("G. automatic profile is recognised as automatic", auto_box.auto_mode, "auto_mode")
 
-# ----------------------------------------------------------------- h-pattern ---
+	auto_box.set_range("P")
+	var p_locked: bool = auto_box.parking_lock() and auto_box.gear == 0
+	var p_refused: bool = not auto_box.request_gear(1, true)
+	_check("G. automatic P locks the driveline", p_locked and p_refused,
+		"range %s gear %d" % [auto_box.range_id, auto_box.gear])
 
-func _test_h_pattern() -> void:
-	var p: TransmissionProfile = Content.vehicle_by_id("ranger_4x4").stock_transmission_profile()
-	var n1: Vector2 = p.gate_node(1)
-	var n2: Vector2 = p.gate_node(2)
-	var n3: Vector2 = p.gate_node(3)
-	check("h-pattern: 1 and 2 share a column", is_equal_approx(n1.x, n2.x) and not is_equal_approx(n1.y, n2.y), "%.2f/%.2f" % [n1.y, n2.y])
-	check("h-pattern: 3 is in the next column", not is_equal_approx(n1.x, n3.x), "x %.2f vs %.2f" % [n1.x, n3.x])
-	check("h-pattern: reverse has its own column", not is_equal_approx(p.gate_node(-1).x, n3.x), "x %.2f" % p.gate_node(-1).x)
-	check("h-pattern: neutral is the crossing rail", near(p.gate_project(Vector2(0.5, 0.5)).get("gear", -9), 0, 0.001), "N")
-	check("h-pattern: gate commits 1st at its node", int(p.gate_project(n1).get("gear", 0)) == 1, str(n1))
-	var diagonal: Dictionary = p.gate_project(Vector2((n2.x + n3.x) * 0.5, (n2.y + n3.y) * 0.5))
-	check("h-pattern: a diagonal cannot select a gear", int(diagonal.get("gear", -9)) == 0, "gear %d" % int(diagonal.get("gear", -9)))
-	check("h-pattern: six-speed box has six nodes", p.gear_count() == 5 or p.gear_count() == 6, "%d gears" % p.gear_count())
+	# reset() restores the default range, so it must run before set_range().
+	auto_box.reset(0)
+	auto_box.set_range("N")
+	for i: int in range(30):
+		auto_box.auto_update(0.1, 5200.0, 0.9, 0.0)
+	_check("G. automatic N revs free without engaging a gear", auto_box.gear == 0,
+		"range %s gear %d" % [auto_box.range_id, auto_box.gear])
 
-# ------------------------------------------------------------ clutch interlock ---
+	auto_box.set_range("R")
+	_check("G. automatic R selects reverse", auto_box.gear == -1,
+		"range %s gear %d" % [auto_box.range_id, auto_box.gear])
 
-func _test_clutch_interlock() -> void:
-	var p: TransmissionProfile = Content.vehicle_by_id("ranger_4x4").stock_transmission_profile()
-	var gb := GearboxState.new(p)
-	gb.engine_redline = 4500.0
-	gb.wheel_radius = 0.39
-	gb.reset(1)
-	gb.update(1.0)
-	var refused: bool = gb.request_gear(2, false, false, 0.0)
-	check("clutch: shift refused without the pedal", not refused and gb.reject_reason == GearboxState.REJECT_CLUTCH, gb.reject_reason)
-	check("clutch: refusal leaves the gear engaged", gb.gear == 1, "gear %d" % gb.gear)
-	var accepted: bool = gb.request_gear(2, false, true, 0.0)
-	check("clutch: shift accepted with the pedal down", accepted and gb.gear == 2, "gear %d" % gb.gear)
-	check("clutch: shift interrupts torque", gb.is_shifting() and near(gb.effective_ratio(), 0.0, 0.0001), "%.2f s" % gb.shift_timer)
+	auto_box.reset(1)
+	auto_box.set_range("D")
+	var upshifted: bool = false
+	for i: int in range(80):
+		auto_box.auto_update(0.1, 3600.0, 0.5, 10.0, 0.2, 0.0, 0.0)
+		if auto_box.gear >= 2:
+			upshifted = true
+			break
+	_check("G. automatic D upshifts under load", upshifted,
+		"range %s gear %d" % [auto_box.range_id, auto_box.gear])
 
-	gb.update(0.5)
-	gb.reset(3)
-	gb.update(1.0)
-	var overrev: bool = gb.request_gear(1, false, true, 40.0)
-	check("clutch: over-rev downshift blocked", not overrev and gb.reject_reason == GearboxState.REJECT_OVERREV, gb.reject_reason)
-	gb.reset(0)
-	gb.update(1.0)
-	var rolling_reverse: bool = gb.request_gear(-1, false, true, 5.0)
-	check("clutch: reverse blocked while rolling", not rolling_reverse and gb.reject_reason == GearboxState.REJECT_REVERSE, gb.reject_reason)
+	auto_box.reset(1)
+	auto_box.set_range("L")
+	for i: int in range(80):
+		auto_box.auto_update(0.1, 4200.0, 0.7, 14.0, 0.2, 0.0, 0.0)
+	_check("G. automatic L caps the gearbox at two gears", auto_box.gear <= 2,
+		"range %s gear %d (top %d)" % [auto_box.range_id, auto_box.gear, auto_box.range_top_gear()])
 
-	var seq: TransmissionProfile = Content.vehicle_by_id("rocky_buggy").stock_transmission_profile()
-	check("clutch: dog box needs no pedal", not seq.requires_clutch, "sequential")
+	var clutch_box := GearboxState.new()
+	clutch_box.setup(manual)
+	clutch_box.reset(1)
+	var refused: bool = not clutch_box.request_gear(2, false, false, 0.0)
+	var refused_reason: String = clutch_box.reject_reason
+	var gear_after_refusal: int = clutch_box.gear
+	var accepted: bool = clutch_box.request_gear(2, false, true, 0.0)
+	_check("G. manual shift without clutch is refused",
+		refused and refused_reason == GearboxState.REJECT_CLUTCH and gear_after_refusal == 1,
+		"reason '%s', gear %d" % [refused_reason, gear_after_refusal])
+	_check("G. the same manual shift is accepted with the clutch pressed",
+		accepted and clutch_box.gear == 2, "gear %d" % clutch_box.gear)
 
-# ----------------------------------------------------------------- automatic ---
+	var clutch := ClutchState.new()
+	clutch.capacity = 420.0
+	clutch.stiffness = 2.6
+	clutch.manual_mode = true
+	var fully_pressed: float = clutch.engagement_target(1.0)
+	var fully_released: float = clutch.engagement_target(0.0)
+	var bite: float = clutch.engagement_target(0.5)
+	_check("G. clutch pedal fully pressed = open", fully_pressed < 0.01,
+		"engagement %s" % _f(fully_pressed, 3))
+	_check("G. clutch pedal released = closed", fully_released > 0.99,
+		"engagement %s" % _f(fully_released, 3))
+	_check("G. clutch bite point is partial engagement", bite > 0.2 and bite < 0.8,
+		"engagement %s at half pedal" % _f(bite, 3))
+	clutch.engagement = bite
+	clutch.slip_rpm = 60.0
+	var transmitted: float = clutch.compute_torque()
+	_check("G. clutch at the bite point transmits partial torque",
+		transmitted > 1.0 and transmitted < clutch.capacity * 0.99,
+		"%s Nm of %s Nm capacity" % [_f(transmitted, 1), _f(clutch.capacity, 0)])
 
-func _test_automatic() -> void:
-	var p: TransmissionProfile = Content.vehicle_by_id("titan_offroad").stock_transmission_profile()
-	var gb := GearboxState.new(p)
-	gb.engine_redline = 3400.0
-	gb.wheel_radius = 0.51
-	gb.auto_mode = true
-	gb.range_id = "D"
-	gb.reset(0)
-	gb.auto_update(0.4, 800.0, 0.4, 1.5, 0.2, 0.0, 0.0)
-	check("automatic: pulls away from rest", gb.gear == 1, "gear %d" % gb.gear)
-	gb.update(1.0)
-	gb.time_in_gear = 1.0
-	gb.auto_update(0.4, 3300.0, 0.9, 18.0, 0.8, 0.0, 0.0)
-	check("automatic: upshifts under load", gb.gear == 2, "gear %d" % gb.gear)
+# ---------------------------------------------------- H. save migration ---
 
-	gb.reset(4)
-	gb.time_in_gear = 2.0
-	gb.auto_update(0.4, 1500.0, 1.0, 12.0, 0.9, 0.0, 0.0)
-	check("automatic: kickdown drops a gear", gb.gear == 3 and gb.is_kickdown(), "gear %d" % gb.gear)
+func _test_h_save_migration() -> void:
+	_section("H. Save migration (v4 -> v5, in memory only)")
+	var legacy: Dictionary = {
+		"version": 4,
+		"credits": 1234,
+		"xp": 500,
+		"selected_vehicle": "ranger_4x4",
+		"owned_vehicles": ["rocky_buggy", "ranger_4x4"],
+		"records": {
+			"canyon_01": {"best_time": 123.4, "medal": 2, "attempts": 3, "completed": true},
+			"canyon_02": {"best_time": 98.7, "medal": 1, "attempts": 1, "completed": true},
+		},
+		"upgrades": {
+			"ranger_4x4": ["engine_1", "gearbox_1", "tires_1", "legacy_unknown_upgrade"],
+		},
+		"config": {"ranger_4x4": {"transfer": "4L", "diff": "lsd"}},
+	}
+	var migrated: Dictionary = SaveManager._migrate(legacy, 4)
+	_check("H. credits preserved", int(migrated.get("credits", -1)) == 1234,
+		"%d" % int(migrated.get("credits", -1)))
+	_check("H. schema raised to v5 and origin recorded",
+		int(migrated.get("version", -1)) == SaveManager.VERSION
+		and int(migrated.get("migrated_from", -1)) == 4,
+		"version %d, migrated_from %d" % [
+			int(migrated.get("version", -1)), int(migrated.get("migrated_from", -1)),
+		])
 
-	gb.reset(3)
-	gb.time_in_gear = 2.0
-	gb.auto_update(0.4, 3200.0, 0.9, 4.0, 0.9, 0.0, 3.0)
-	check("automatic: does not chase a spinning wheel", gb.gear == 3, "gear %d" % gb.gear)
+	var owned: Array = migrated.get("owned_vehicles", []) as Array
+	var owned_detail: String = ""
+	for raw: Variant in owned:
+		owned_detail += String(raw) + " "
+	_check("H. owned vehicles mapped to the 3.0 roster",
+		owned.size() == 2 and owned.has("jimny_jb74") and owned.has("hilux_an120"),
+		owned_detail.strip_edges())
+	_check("H. selected vehicle mapped", String(migrated.get("selected_vehicle", "")) == "hilux_an120",
+		String(migrated.get("selected_vehicle", "")))
 
-	gb.reset(3)
-	gb.time_in_gear = 2.0
-	gb.auto_update(0.4, 1200.0, 0.5, 9.0, 0.8, 18.0, 0.0)
-	check("automatic: grade triggers a downshift", gb.gear == 2, "gear %d" % gb.gear)
+	var records: Dictionary = migrated.get("records", {}) as Dictionary
+	var canyon_a: Dictionary = records.get("zagros_01", {}) as Dictionary
+	var canyon_b: Dictionary = records.get("zagros_02", {}) as Dictionary
+	_check("H. canyon_01 record mapped to zagros_01 with its best time",
+		absf(float(canyon_a.get("best_time", -1.0)) - 123.4) < 0.001
+		and bool(canyon_a.get("completed", false)) and int(canyon_a.get("medal", 0)) == 2,
+		"best %s s, medal %d" % [
+			_f(float(canyon_a.get("best_time", -1.0)), 1), int(canyon_a.get("medal", 0)),
+		])
+	_check("H. canyon_02 record mapped to zagros_02 with its best time",
+		absf(float(canyon_b.get("best_time", -1.0)) - 98.7) < 0.001
+		and int(canyon_b.get("attempts", 0)) == 1,
+		"best %s s, attempts %d" % [
+			_f(float(canyon_b.get("best_time", -1.0)), 1), int(canyon_b.get("attempts", 0)),
+		])
+	_check("H. legacy 'upgrades' block consumed",
+		not migrated.has("upgrades") and not migrated.has("config"),
+		"keys left: %s" % str(migrated.keys()))
 
-	gb.reset(2)
-	gb.range_id = "L"
-	gb.time_in_gear = 2.0
-	gb.auto_update(0.4, 3300.0, 0.9, 10.0, 0.8, 0.0, 0.0)
-	check("automatic: L holds the low gears", gb.gear == 2, "gear %d" % gb.gear)
+	var garage: Dictionary = migrated.get("garage", {}) as Dictionary
+	var hilux_entry: Dictionary = garage.get("hilux_an120", {}) as Dictionary
+	var owned_parts: Array = hilux_entry.get("owned", []) as Array
+	var part_set: Array[String] = []
+	for raw: Variant in owned_parts:
+		part_set.append(String(raw))
+	var parts_map: Dictionary = hilux_entry.get("parts", {}) as Dictionary
+	var expected_parts: Array[String] = [
+		"hilux_an120_intake_sport", "hilux_an120_clutch_hd", "hilux_an120_tyre_at",
+	]
+	var all_present: bool = true
+	for wanted: String in expected_parts:
+		if not part_set.has(wanted):
+			all_present = false
+	_check("H. garage entry keeps every migrated purchase", all_present,
+		"%d owned: %s" % [part_set.size(), _join(part_set)])
+	_check("H. migrated purchases are also fitted in the garage entry",
+		parts_map.has(str(int(PartDef.Slot.INTAKE)))
+		and parts_map.has(str(int(PartDef.Slot.CLUTCH)))
+		and parts_map.has(str(int(PartDef.Slot.TYRES)))
+		and garage.has("jimny_jb74"),
+		"parts keys %s, garage %s" % [str(parts_map.keys()), str(garage.keys())])
 
-# ---------------------------------------------------------- transfer and diff ---
+# -------------------------------------------------- I. data contracts ---
 
-func _test_transfer_and_diff() -> void:
-	var p: TransmissionProfile = Content.vehicle_by_id("ranger_4x4").stock_transmission_profile()
-	var gb := GearboxState.new(p)
-	gb.engine_redline = 4500.0
-	gb.reset(1)
-	gb.update(1.0)
-	var high: float = gb.total_ratio()
-	gb.set_transfer_modes(PackedStringArray(["2H", "4H", "4L"]), PackedFloat32Array([1.0, 1.0, 2.48]))
-	gb.update(1.0)
-	gb.set_transfer("4L")
-	gb.update(1.0)
-	check("transfer: 4L multiplies the driveline", near(gb.total_ratio(), high * 2.48, 0.5), "%.1f -> %.1f" % [high, gb.total_ratio()])
-	check("transfer: 4L drives the front axle", gb.transfer_drives_front(), gb.transfer_id())
-	gb.set_transfer("2H")
-	gb.update(1.0)
-	check("transfer: 2H leaves the front axle unpowered", not gb.transfer_drives_front(), gb.transfer_id())
+func _test_i_data_contracts() -> void:
+	_section("I. Mobile/UI data contracts")
+	for track: TrackDef in Content.tracks:
+		var tag: String = "I[%s]" % track.id
+		var supported: Array[String] = []
+		for mode: String in TRACK_MODES:
+			if track.supports_mode(mode):
+				supported.append(mode)
+		_check("%s supports at least one mode" % tag, not supported.is_empty(),
+			"%d modes, %s" % [supported.size(), _join(supported)])
 
-	var s: Dictionary = await _spawn(0.0, "hard_dirt", "ranger_4x4", 1)
-	var veh: VehicleBody = s["vehicle"]
-	veh.diff_mode = "locked"
-	veh.axles[0].omega = 4.0
-	veh.axles[1].omega = 20.0
-	veh.axles[0].in_contact = true
-	veh.axles[1].in_contact = true
-	veh._apply_differential()
-	check("diff: locked axles turn together", absf(veh.axles[0].omega - veh.axles[1].omega) < 0.01, "%.2f / %.2f" % [veh.axles[0].omega, veh.axles[1].omega])
-	veh.diff_mode = "open"
-	veh.axles[0].omega = 4.0
-	veh.axles[1].omega = 20.0
-	veh._apply_differential()
-	check("diff: open axle keeps its own speed", absf(veh.axles[0].omega - veh.axles[1].omega) > 10.0, "%.2f / %.2f" % [veh.axles[0].omega, veh.axles[1].omega])
-	veh.diff_mode = "lsd"
-	veh.axles[0].omega = 4.0
-	veh.axles[1].omega = 20.0
-	veh._apply_differential()
-	check("diff: limited slip pulls speeds together", veh.axles[0].omega > 4.0 and veh.axles[0].omega < veh.axles[1].omega, "%.2f / %.2f" % [veh.axles[0].omega, veh.axles[1].omega])
+		var ordered: bool = track.medal_gold > 0.0 \
+			and track.medal_gold < track.medal_silver \
+			and track.medal_silver < track.medal_bronze
+		_check("%s medal times ordered gold < silver < bronze" % tag, ordered,
+			"%s < %s < %s s" % [
+				_f(track.medal_gold, 1), _f(track.medal_silver, 1), _f(track.medal_bronze, 1),
+			])
 
-# ---------------------------------------------------------------- weather ----
+	for vehicle: VehicleDef in Content.vehicles:
+		var tag: String = "I[%s]" % vehicle.id
+		_check("%s tyre radius positive" % tag,
+			vehicle.tire_front.radius_m > 0.0 and vehicle.tire_rear.radius_m > 0.0,
+			"%s / %s m" % [
+				_f(vehicle.tire_front.radius_m, 4), _f(vehicle.tire_rear.radius_m, 4),
+			])
+		var finals: Array[String] = []
+		var bad: Array[String] = []
+		for transmission: TransmissionProfile in vehicle.transmission_options():
+			finals.append("%s=%.3f" % [transmission.id, transmission.final_drive])
+			if transmission.final_drive < 2.5 or transmission.final_drive > 5.5:
+				bad.append("%s %.3f" % [transmission.id, transmission.final_drive])
+		_check("%s final drives within 2.5..5.5" % tag, bad.is_empty(),
+			_join(finals))
 
-func _test_weather() -> void:
-	var w := WeatherSystem.new()
-	add_child(w)
-	w.setup("canyon", "snow", 2)
-	check("weather: snow reduces grip", near(w.grip_scale, 0.86, 0.001), "grip %.2f" % w.grip_scale)
-	check("weather: snow raises rolling resistance", w.rr_scale > 1.0, "rr %.2f" % w.rr_scale)
-	check("weather: a snow stage reports snow", Content.stage_by_id("black_ridge_04").weather == "snow", Content.stage_by_id("black_ridge_04").weather)
-	var s: Dictionary = await _spawn(0.0, "hard_dirt", "ranger_4x4", 1)
-	var veh: VehicleBody = s["vehicle"]
-	w.apply_to(veh)
-	check("weather: grip scale reaches the vehicle", near(veh.surface_grip_scale, 0.86, 0.001), "%.2f" % veh.surface_grip_scale)
-	w.queue_free()
 
-# ------------------------------------------------------------------- winch ----
+# ------------------------------------------------------------- J. MUDRO radio ---
 
-func _test_winch() -> void:
-	var s: Dictionary = await _spawn(0.0, "hard_dirt", "ranger_4x4", 1)
-	var veh: VehicleBody = s["vehicle"]
-	var terrain: TerrainBuilder = s["terrain"]
-	var stage: StageDef = s["stage"]
-	var winch := WinchSystem.new()
-	_arena.add_child(winch)
-	winch.setup(veh, terrain, stage)
-	var start_x: float = veh.global_position.x
-	var result: String = winch.toggle()
-	check("winch: attaches to a legal anchor", winch.attached and result.begins_with("winch_attached"), result)
-	check("winch: rated pull comes from the vehicle", near(winch.max_force, veh.definition.winch_force_n, 1.0), "%.0f N" % winch.max_force)
-	await _sim(veh, 1.2, 0.0)
-	check("winch: cable pulls the vehicle", veh.global_position.x - start_x > 0.05, "%.2f m" % ((veh.global_position.x - start_x) / Units.PPM))
-	check("winch: tension stays inside the rated force", winch.tension_kn() <= winch.max_force / 1000.0 + 0.01, "%.1f kN" % winch.tension_kn())
-	winch.toggle()
-	check("winch: detaches cleanly", not winch.attached and veh.external_force.length() < 0.01, "released")
+## Builds a throwaway pack in user:// and checks the load gates of
+## docs/RADIO_CONTENT_POLICY.md §6.4. A pack is a unit of provenance: one bad
+## track rejects the whole folder, and the message must name the gate.
+func _test_j_radio() -> void:
+	_section("J. Radio content packs (policy gates)")
+	var model := RadioModel.new()
+	model.scan()
+	_check("J. built-in station ships audio", model.playable_count() >= 4,
+		"%d built-in tracks" % model.playable_count())
+	var builtin: Dictionary = model.select(1)
+	_check("J. built-in track is bucket A with an own-work licence",
+		String(builtin.get("bucket", "")) == "A" and String(builtin.get("license_id", "")) == "OWN-WORK",
+		"%s / %s" % [builtin.get("bucket", ""), builtin.get("license_id", "")])
+	var path: String = String(builtin.get("path", ""))
+	_check("J. built-in track file exists", ResourceLoader.exists(path), path)
 
-# -------------------------------------------------------------- touch layout ---
+	var root: String = "user://_test_radio"
+	_clean_dir(root)
+	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(root))
 
-func _test_touch_layout() -> void:
-	var controls := TouchControls.new()
-	add_child(controls)
-	controls.preview_all = true
-	controls.setup(Content.vehicle_by_id("ranger_4x4").stock_transmission_profile(), null)
-	var aspects: Array[Vector2] = [Vector2(1280, 720), Vector2(1560, 720), Vector2(1600, 720), Vector2(2340, 1080)]
-	var all_inside: bool = true
-	var separated: bool = true
-	for view: Vector2 in aspects:
-		controls.size = view
-		controls.layout()
-		for w: TouchWidget in controls.widgets.values():
-			var r := Rect2(w.position, w.size)
-			if r.position.x < -1.0 or r.position.y < -1.0 or r.end.x > view.x + 1.0 or r.end.y > view.y + 1.0:
-				all_inside = false
-		var a: TouchWidget = controls.widgets.get("throttle")
-		var b: TouchWidget = controls.widgets.get("brake")
-		if a != null and b != null and Rect2(a.position, a.size).intersects(Rect2(b.position, b.size), true):
-			separated = false
-	check("touch: every control stays on screen at 4 aspects", all_inside, "16:9 / 19.5:9 / 20:9 / 2340x1080")
-	check("touch: throttle and brake never overlap", separated, "4 aspects")
+	# --- happy path -------------------------------------------------------
+	var pack_dir: String = root.path_join("demo_pack")
+	_write_pack(pack_dir, "demo_pack", {
+		"file": "tracks/a.wav",
+		"source_bucket": "C",
+		"license_id": "CC-BY-4.0",
+		"evidence_path": "evidence/deed.txt",
+		"attribution_text": "\"A\" by Someone — CC BY 4.0 — edited",
+	})
+	var good: RadioPack = RadioPack.load_pack(pack_dir)
+	_check("J. a complete pack loads", good.ok(), good.reject_reason)
+	_check("J. a loaded pack exposes its tracks", good.track_count() == 1,
+		"%d tracks" % good.track_count())
 
-	controls.size = Vector2(1600, 720)
-	controls.layout()
-	for preset: String in TouchControls.PRESETS:
-		SettingsService.control_preset = preset
-		controls.rebuild()
-		controls.size = Vector2(1600, 720)
-		controls.layout()
-		var ok: bool = controls.widgets.has("throttle") and controls.widgets.has("brake") and controls.widgets.has("gear")
-		check("touch: preset '%s' builds its controls" % preset, ok, "%d widgets" % controls.widgets.size())
-	SettingsService.control_preset = "buttons"
-	controls.rebuild()
-	controls.size = Vector2(1600, 720)
-	controls.layout()
+	# --- one failing track rejects the pack -------------------------------
+	var bad_dir: String = root.path_join("bad_provenance")
+	_write_pack(bad_dir, "bad_provenance", {
+		"file": "tracks/a.wav",
+		"source_bucket": "C",
+		"license_id": "",
+		"evidence_path": "evidence/deed.txt",
+		"attribution_text": "x",
+	})
+	var bad: RadioPack = RadioPack.load_pack(bad_dir)
+	_check("J. a track without a licence rejects the pack", not bad.ok() and bad.reject_gate == 5,
+		"gate %d: %s" % [bad.reject_gate, bad.reject_reason])
 
-	var throttle: TouchWidget = controls.widgets.get("throttle") as TouchWidget
-	var clutch: TouchWidget = controls.widgets.get("clutch") as TouchWidget
-	var p_throttle: Vector2 = throttle.position + throttle.size * 0.5
-	var p_clutch: Vector2 = clutch.position + clutch.size * 0.5
-	controls._begin(1, p_throttle)
-	controls._begin(2, p_clutch)
-	check("touch: two fingers own two controls", throttle.active and clutch.active and throttle.value > 0.99 and clutch.value > 0.99, "thr %.2f clu %.2f" % [throttle.value, clutch.value])
-	controls._end(1)
-	check("touch: lifting the throttle keeps the clutch down", not throttle.active and clutch.active and clutch.value > 0.99, "clu %.2f" % clutch.value)
-	controls._end(2)
-	check("touch: lifting the second finger releases it", not clutch.active and near(clutch.value, 0.0, 0.001), "clu %.2f" % clutch.value)
+	# --- escaping the pack root ------------------------------------------
+	var esc_dir: String = root.path_join("escaping")
+	_write_pack(esc_dir, "escaping", {
+		"file": "../outside.wav",
+		"source_bucket": "A",
+		"license_id": "OWN-WORK",
+		"evidence_path": "evidence/deed.txt",
+		"attribution_text": "",
+	}, false)
+	var esc: RadioPack = RadioPack.load_pack(esc_dir)
+	_check("J. a path that escapes the pack is refused", not esc.ok() and esc.reject_gate == 6,
+		"gate %d: %s" % [esc.reject_gate, esc.reject_reason])
 
-	controls._begin(3, p_throttle)
-	controls._begin(4, p_clutch)
-	controls.release_all()
-	check("touch: pause / focus loss releases everything", not throttle.active and not clutch.active and near(throttle.value, 0.0, 0.001) and near(clutch.value, 0.0, 0.001), "cleared")
+	# --- identity ---------------------------------------------------------
+	var id_dir: String = root.path_join("right_folder")
+	_write_pack(id_dir, "wrong_id", {
+		"file": "tracks/a.wav",
+		"source_bucket": "A",
+		"license_id": "OWN-WORK",
+		"evidence_path": "evidence/deed.txt",
+		"attribution_text": "",
+	})
+	var ident: RadioPack = RadioPack.load_pack(id_dir)
+	_check("J. pack_id must match the folder name", not ident.ok() and ident.reject_gate == 3,
+		"gate %d: %s" % [ident.reject_gate, ident.reject_reason])
 
-	controls.open_panel()
-	check("touch: gear panel opens", controls.panel_open and controls.panel.visible, "visible")
-	controls.close_panel()
-	check("touch: gear panel closes", not controls.panel_open, "closed")
+	# --- attribution completeness for licensed material -------------------
+	var attr_dir: String = root.path_join("no_credit")
+	_write_pack(attr_dir, "no_credit", {
+		"file": "tracks/a.wav",
+		"source_bucket": "C",
+		"license_id": "CC-BY-4.0",
+		"evidence_path": "evidence/deed.txt",
+		"attribution_text": "",
+	})
+	var attr: RadioPack = RadioPack.load_pack(attr_dir)
+	_check("J. CC BY content without attribution is refused", not attr.ok() and attr.reject_gate == 7,
+		"gate %d: %s" % [attr.reject_gate, attr.reject_reason])
 
-	SettingsService.control_positions = {"buttons:throttle": [0.7, 0.55]}
-	controls.layout()
-	var moved: Vector2 = throttle.position + throttle.size * 0.5
-	check("touch: a layout override moves the control", absf(moved.x - 0.7 * 1600.0) < 2.0 and absf(moved.y - 0.55 * 720.0) < 2.0, "%.0f,%.0f" % [moved.x, moved.y])
-	SettingsService.control_positions = {}
-	controls.queue_free()
+	# --- a pack never reaches into res:// ---------------------------------
+	_check("J. packs are only read from user://", RadioModel.PACK_ROOT == "user://radio_packs",
+		RadioModel.PACK_ROOT)
+	_clean_dir(root)
 
-# -------------------------------------------------------------- route stats ---
+func _write_pack(dir_path: String, pack_id: String, track: Dictionary,
+		create_file: bool = true) -> void:
+	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(dir_path.path_join("tracks")))
+	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(dir_path.path_join("evidence")))
+	var evidence: String = dir_path.path_join("evidence/deed.txt")
+	if not FileAccess.file_exists(evidence):
+		var f: FileAccess = FileAccess.open(evidence, FileAccess.WRITE)
+		if f != null:
+			f.store_string("test evidence\n")
+			f.close()
+	if create_file:
+		var audio: FileAccess = FileAccess.open(dir_path.path_join("tracks/a.wav"), FileAccess.WRITE)
+		if audio != null:
+			audio.store_buffer(PackedByteArray())
+			audio.close()
+	var manifest: Dictionary = {
+		"schema_version": 1,
+		"pack_id": pack_id,
+		"display_name": "Test Pack",
+		"author": "test",
+		"license_file": "LICENSE.txt",
+		"tracks": [{
+			"id": "a",
+			"file": String(track["file"]),
+			"title": "A",
+			"artist": "Someone",
+			"rights_holder": "Someone",
+			"source_bucket": String(track["source_bucket"]),
+			"license_id": String(track["license_id"]),
+			"license_url": "https://creativecommons.org/licenses/by/4.0/",
+			"evidence_path": String(track["evidence_path"]),
+			"attribution_text": String(track["attribution_text"]),
+			"edited": true,
+			"duration_s": 1.0,
+			"sha256": "",
+			"loop": false,
+		}],
+	}
+	var mf: FileAccess = FileAccess.open(dir_path.path_join("manifest.json"), FileAccess.WRITE)
+	if mf != null:
+		mf.store_string(JSON.stringify(manifest, "\t"))
+		mf.close()
 
-func _test_route_stats() -> void:
-	var st: StageDef = Content.stage_by_id("black_ridge_03")
-	var stats: Dictionary = st.route_stats()
-	check("route: length comes from the stage", near(float(stats["length_m"]), st.length_m, 0.01), "%.0f m" % st.length_m)
-	check("route: max grade is a real slope", float(stats["max_grade_deg"]) > 10.0, "%.1f deg" % float(stats["max_grade_deg"]))
-	var surface_total: float = float(stats["rock_pct"]) + float(stats["dirt_pct"]) + float(stats["mud_pct"])
-	check("route: surface split sums to 100%", absf(surface_total - 100.0) < 0.5, "%.1f%%" % surface_total)
-	check("route: obstacles are counted", int(stats["obstacles"]) >= 8, "%d" % int(stats["obstacles"]))
-	check("route: the bridge stage is harder than the first", st.difficulty > Content.stage_by_id("black_ridge_01").difficulty, "%d vs %d" % [st.difficulty, Content.stage_by_id("black_ridge_01").difficulty])
-
-# ----------------------------------------------------------------- content 2.0 ---
-
-func _test_content_2_0() -> void:
-	check("content: black ridge exists", Content.env_meta("black_ridge").size() > 0, "meta")
-	var bridge_stage: StageDef = Content.stage_by_id("black_ridge_03")
-	var bridges: int = 0
-	var kinds: Dictionary = {}
-	for o: Dictionary in bridge_stage.obstacles:
-		kinds[String(o.get("kind", ""))] = true
-		if String(o.get("kind", "")) == "steel_bridge":
-			bridges += 1
-	check("content: broken span has two real bridges", bridges == 2, "%d" % bridges)
-	check("content: industrial props are authored", kinds.has("industrial_barrier") and kinds.has("ore_cart") and kinds.has("pipe_stack"), str(kinds.keys()))
-	check("content: ash and scree surfaces exist", Content.surfaces.has("ash") and Content.surfaces.has("scree"), "surfaces")
-	check("content: every vehicle has tyre and suspension choices",
-		Content.vehicle_by_id("ranger_4x4").tire_options.size() >= 3 and Content.vehicle_by_id("ranger_4x4").suspension_options.size() >= 3,
-		"%d / %d" % [Content.vehicle_by_id("ranger_4x4").tire_options.size(), Content.vehicle_by_id("ranger_4x4").suspension_options.size()])
-	check("content: winches are vehicle-specific", Content.vehicle_by_id("ranger_4x4").has_winch and not Content.vehicle_by_id("rocky_buggy").has_winch, "ranger yes / buggy no")
-
-## A bridge must be a real platform, not a picture: the car drives across the gap
-## on the collider and the surface under the tyres reports steel.
-func _test_bridge_platform() -> void:
-	var stage: StageDef = Content.stage_by_id("black_ridge_03")
-	var world := Node2D.new()
-	add_child(world)
-	var terrain := TerrainBuilder.new()
-	world.add_child(terrain)
-	terrain.build(stage, Content.surfaces)
-	var def: VehicleDef = Content.vehicle_by_id("ranger_4x4")
-	var veh := VehicleBody.new()
-	world.add_child(veh)
-	veh.setup(def, Content.surfaces)
-	veh.attach_surface_probe(terrain)
-	veh.configure_driver(true)
-	veh.global_transform = Transform2D(0.0, Vector2(295.0 * Units.PPM, -22.0 * Units.PPM - 0.8 * Units.PPM))
-	veh.gearbox.reset(1)
-	veh.damage.reset()
-	veh.controls_locked = false
-	await get_tree().physics_frame
-	var deck_surface: SurfaceProfile = terrain.surface_at_world(Vector2(300.0 * Units.PPM, -22.0 * Units.PPM))
-	check("bridge: deck reports a steel surface", deck_surface != null and deck_surface.id == "steel", deck_surface.id if deck_surface != null else "none")
-	var start_x: float = veh.global_position.x
-	for i: int in range(240):
-		veh.set_inputs(0.70, 0.0, 0.0, 1.0)
-		await get_tree().physics_frame
-	var travelled: float = (veh.global_position.x - start_x) / Units.PPM
-	check("bridge: the car crosses the span", travelled > 3.0, "%.1f m" % travelled)
-	check("bridge: the car stays on the deck", veh.global_position.y < -16.0 * Units.PPM, "y %.1f m" % (-veh.global_position.y / Units.PPM))
-	world.queue_free()
-	await get_tree().process_frame
-
-# ------------------------------------------------------------ config & save ---
-
-## End-to-end: the race scene, the shared input state, the gearbox interlock and the
-## panel must agree. This instantiates the real race, not a stub.
-func _test_race_integration() -> void:
-	SaveManager.set_config_value("ranger_4x4", "transmission", "ranger_h5")
-	SaveManager.set_config_value("ranger_4x4", "transfer", "4H")
-	SaveManager.set_config_value("ranger_4x4", "diff", "open")
-	GameSession.start_stage("canyon_01", "career")
-	GameSession.vehicle_id = "ranger_4x4"
-	var packed: PackedScene = load("res://scenes/race/race.tscn") as PackedScene
-	if packed == null:
-		check("race: scene loads", false, "missing")
+func _clean_dir(dir_path: String) -> void:
+	var dir: DirAccess = DirAccess.open(dir_path)
+	if dir == null:
 		return
-	var race: Node = packed.instantiate()
-	add_child(race)
-	for i: int in range(4):
-		await get_tree().process_frame
-	var veh: VehicleBody = race.get("vehicle") as VehicleBody
-	check("race: builds a vehicle and a HUD", veh != null and race.get("hud") != null, "ready")
-	if veh == null:
-		return
-	check("race: fitted gearbox is the manual", veh.gearbox.profile != null and veh.gearbox.profile.is_manual() and veh.gearbox.profile.requires_clutch, veh.gearbox.profile.id if veh.gearbox.profile != null else "none")
-	race.set("state", "paused")
-	veh.controls_locked = false
-	veh.gearbox.reset(1)
-	veh.gearbox.update(1.0)
+	dir.list_dir_begin()
+	var entry: String = dir.get_next()
+	while entry != "":
+		var child: String = dir_path.path_join(entry)
+		if dir.current_is_dir():
+			_clean_dir(child)
+			DirAccess.remove_absolute(ProjectSettings.globalize_path(child))
+		else:
+			DirAccess.remove_absolute(ProjectSettings.globalize_path(child))
+		entry = dir.get_next()
+	dir.list_dir_end()
 
-	# Full manual: a shift with the pedal released must be refused.
-	SettingsService.clutch = "manual"
-	veh.configure_driver(false)
-	veh.set_inputs(0.0, 0.0, 0.0, 1.0)
-	await get_tree().physics_frame
-	await get_tree().physics_frame
-	race.call("_request_gear", 2)
-	check("race: manual shift is refused without the clutch", veh.gearbox.gear == 1, "gear %d reason %s auto %s pedal %.2f" % [veh.gearbox.gear, veh.gearbox.reject_reason, str(veh.auto_clutch), veh.clutch.pedal])
 
-	# Press the pedal to the floor and the same request is accepted.
-	veh.set_inputs(0.0, 0.0, 0.0, 0.0)
-	for i: int in range(3):
-		await get_tree().physics_frame
-	check("race: clutch pedal reaches the floor", veh.clutch_pedal() >= VehicleInputState.CLUTCH_FULL, "%.2f" % veh.clutch_pedal())
-	race.call("_request_gear", 2)
-	check("race: manual shift accepted with the clutch", veh.gearbox.gear == 2, "gear %d reason %s" % [veh.gearbox.gear, veh.gearbox.reject_reason])
+# ----------------------------------------------------------------- K. weather ---
 
-	# Transfer case and diff are live through the same path.
-	race.call("_cycle_transfer")
-	check("race: transfer case cycles", veh.gearbox.transfer_id() != "4H", veh.gearbox.transfer_id())
-	race.call("_cycle_diff")
-	check("race: differential cycles", veh.diff_mode != "open", veh.diff_mode)
+## Every track must name a weather profile the game actually has. A typo used to
+## resolve silently to "clear", which meant three tracks advertised wind or a storm
+## and drove in perfect calm.
+func _test_k_weather() -> void:
+	_section("K. Weather profiles")
+	var known: Array = WeatherSystem.PROFILES.keys()
+	var bad: Array[String] = []
+	var seen: Dictionary = {}
+	for track: TrackDef in Content.tracks:
+		seen[track.weather] = true
+		if not known.has(track.weather):
+			bad.append("%s:%s" % [track.id, track.weather])
+	_check("K. every track names a real weather profile", bad.is_empty(),
+		"%d unknown %s" % [bad.size(), _join(bad)])
+	_check("K. the region set actually ships more than clear weather", seen.size() >= 4,
+		"%d distinct profiles used" % seen.size())
 
-	SettingsService.clutch = "assist"
-	veh.configure_driver(true)
-	race.queue_free()
-	for i: int in range(2):
-		await get_tree().process_frame
+	var wind: Dictionary = WeatherSystem.PROFILES["wind"] as Dictionary
+	_check("K. wind profile has a physical strength", float(wind.get("wind", 0.0)) > 0.0,
+		"wind=%.2f grip=%.2f" % [float(wind.get("wind", 0.0)), float(wind.get("grip", 1.0))])
 
-# ------------------------------------------------------------ config & save ---
-func _test_config_save() -> void:
-	SaveManager.reset_profile()
-	var cfg: Dictionary = SaveManager.vehicle_config("ranger_4x4")
-	check("config: defaults to the stock gearbox", String(cfg.get("transmission", "")) == "ranger_h5", String(cfg.get("transmission", "")))
-	SaveManager.set_config_value("ranger_4x4", "transmission", "ranger_auto6")
-	SaveManager.set_config_value("ranger_4x4", "transfer", "4L")
-	SaveManager.set_config_value("ranger_4x4", "diff", "locked")
-	SaveManager.set_config_value("ranger_4x4", "tires", "mt")
-	SaveManager.load_profile()
-	var back: Dictionary = SaveManager.vehicle_config("ranger_4x4")
-	check("config: choices survive a reload", String(back.get("transmission", "")) == "ranger_auto6" and String(back.get("transfer", "")) == "4L", "%s / %s" % [back.get("transmission", ""), back.get("transfer", "")])
-	var built: VehicleDef = GarageModel.build(Content.vehicle_by_id("ranger_4x4"), [], back)
-	check("config: build applies the automatic", built.stock_transmission_profile().is_automatic(), built.stock_transmission_profile().id)
-	check("config: build applies 4L", built.active_transfer == "4L" and built.active_diff == "locked", "%s / %s" % [built.active_transfer, built.active_diff])
-	check("config: mud tyres raise grip in the build", built.tire_rear.mu_scale > Content.vehicle_by_id("ranger_4x4").tire_rear.mu_scale, "%.2f" % built.tire_rear.mu_scale)
-
-	var legacy: Dictionary = {"version": 3, "credits": 4321, "owned_vehicles": ["rocky_buggy"], "records": {}, "upgrades": {}}
-	var migrated: Dictionary = SaveManager._migrate(legacy)
-	check("save: v3 profile migrates without losing credits", int(migrated["version"]) == SaveManager.VERSION and int(migrated["credits"]) == 4321 and migrated.has("config"), "v%d" % int(migrated["version"]))
-	SaveManager.reset_profile()
+	# A steady gust on a stationary car must still be a force, and a taller car must
+	# be pushed harder than a smaller one on the same track.
+	var body: VehicleBody = VehicleBody.new()
+	var tall: VehicleDef = Content.vehicle_by_id("lc79")
+	var small: VehicleDef = Content.vehicle_by_id("jimny_jb74")
+	body.setup(GarageModel.build(tall, GarageModel.empty_config()), Content.surfaces)
+	body.apply_wind(1.0)
+	var tall_force: float = absf(body.wind_force_n(1.0))
+	body.setup(GarageModel.build(small, GarageModel.empty_config()), Content.surfaces)
+	body.apply_wind(1.0)
+	var small_force: float = absf(body.wind_force_n(1.0))
+	_check("K. wind pushes a stationary car", tall_force > 0.0, "%.0f N" % tall_force)
+	_check("K. a taller car catches more wind", tall_force > small_force,
+		"lc79 %.0f N vs jimny %.0f N" % [tall_force, small_force])
+	body.free()
