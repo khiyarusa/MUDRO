@@ -1,0 +1,2 @@
+# Godot must not import the documentation folder: it would turn the licence CSV
+# into translation resources and pack them into the APK.

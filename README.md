@@ -1,114 +1,194 @@
-# MUDRO — OFFROAD PHYSICS 2.0
+# MUDRO 3.0 — MOUNTAIN RACING & AUTOMOTIVE WORKSHOP
 
-A cinematic side-view off-road driving game for Android, built with **Godot 4.7.2**
-and typed GDScript. MUDRO is not a sprite with a speed variable: the vehicle is a
-real `RigidBody2D` with two independent axle assemblies, a torque-curve engine, a
-per-vehicle gearbox, a friction clutch, slip-based tyres and data-driven terrain.
+A cinematic side-view off-road racing game for Android, built with **Godot 4.7.2** and
+typed GDScript. MUDRO is not a sprite with a speed variable: the vehicle is a real
+`RigidBody2D` with two independent axle assemblies, a torque-curve engine derived from the
+parts you fit, a per-vehicle gearbox, a friction clutch with a bite point, slip-based
+tyres, a cooling system that can overheat on a long climb, and data-driven mountain roads.
 
-**2.0 — THE DRIVER EXPERIENCE & VISUAL OVERHAUL** rebuilt the mobile controls,
-made the transmission part of each vehicle, added a fourth region and four new
-stages, and gave the game physical weather and a working winch.
+**3.0 rebuilt the game around mountain racing.** The obstacle courses are gone — there is
+no rock, log, tyre stack, barrier or broken bridge with its own collider anywhere on a
+track. A race is now won by knowing the road, choosing the right car, tuning it and driving
+it well.
 
-![status](docs/screenshots/09_race_driving.png)
+![Main menu](docs/screenshots/v3.0/01_main_menu.png)
+
+---
 
 ## What is in the game
 
 | | |
 |---|---|
-| **Vehicles** | 4 mechanically distinct machines, each with its own gearbox family: Rocky Buggy, Ranger 4x4, Dune Pickup, Titan Offroad |
-| **Transmissions** | H-pattern manual with a 98 % clutch interlock, sequential dog box, automatic with kickdown + torque converter, transfer case 2H/4H/4L, open/LSD/locked differential |
-| **Environments** | 4: Dry Canyon, Pine Highlands, Alpine Quarry, Black Ridge — each with its own layered art and physics profiles |
-| **Stages** | 16 hand-authored stages (4 per region) with unique elevation, surfaces, obstacles, checkpoints and medal times |
-| **Controls** | 3 real presets (Buttons, Analog Slider, Analog Pedals), true multi-touch, per-finger ownership, drag-to-place layout editor, left/right hand |
-| **Systems** | Clutch assist or full manual, engine stall/restart, AWD/RWD, physical winch, damage, upgrades, garage configuration, route briefing, save profile, medals, credits |
-| **Presentation** | Hand-authored SVG art, quality-scaled parallax, surface-driven particles, procedural audio, physical weather, Persian-first RTL UI with an English option |
-| **Platform** | Android, landscape, offline, arm64-v8a, 34.3 MB debug APK |
+| **Vehicles** | 5 real vehicles with documented data: Suzuki Jimny JB74 1.5, Toyota Hilux AN120 2.8 GD-6, Nissan Patrol Y61 3.0 Di, Mitsubishi Pajero 3.2 DiD, Toyota Land Cruiser 79 4.2 D |
+| **Regions** | 5 art regions — Zagros Highlands, Alpine Pass, Pine Valley, Black Ridge, Glacier Road — with 15 authored tracks |
+| **Tracks** | Continuous elevation profiles (C1-continuous slope at every joint), authored surface sections, checkpoints, medal times and measured route stats: length, ascent, descent, max/average grade, steepest 20 m, surface mix |
+| **Modes** | Mountain Rally, Hill Climb, Downhill Control, Mountain Sprint, Time Attack, Endurance, Free Drive, Vehicle Testing |
+| **Transmissions** | H-pattern manual with a clutch interlock and a real bite point, sequential dog box, automatic with kickdown and a torque converter, transfer case 2H/4H/4L (Pajero adds 4HLc/4LLc), open/LSD/locked differential |
+| **Workshop** | 566 parts across 30 slots: engine internals, turbo, intercooler, fuel system, cooling, ECU, gearbox, clutch, transfer case, suspension, brakes, tyres, body, drivetrain |
+| **Engine model** | Boost, charge temperature and volumetric flow produce torque; the fuel system caps power; the rev limit is the lowest limit any fitted part can survive; the cooling system rejects heat or lets the engine derate |
+| **Dyno** | Torque and power curves swept from the same `EngineBuild` the physics uses — no invented numbers |
+| **Controls** | 3 presets (Buttons, Analog Slider, Analog Pedals), true multi-touch with per-finger ownership, drag-to-place layout editor, left/right hand, safe-area aware |
+| **Presentation** | Hand-authored SVG art, quality-scaled parallax, surface-driven particles, project-synthesised audio, physical weather, Persian-first RTL UI with an English option |
+| **Radio** | Optional offline garage radio: a built-in project-made station plus sideloaded content packs validated against [`docs/RADIO_CONTENT_POLICY.md`](docs/RADIO_CONTENT_POLICY.md) |
+| **Platform** | Android, landscape, offline, arm64-v8a, 36.0 MB debug APK |
+| **Saves** | Versioned schema (v5) with a tested migration from the 2.0 profile — credits, owned vehicles, records, purchased parts and per-vehicle tuning all survive |
 
-## Controls
+## Screenshots
 
-**Touch** — choose a preset in Settings → Controls:
+Forty-two real captures of the running game, with an index and an honest list of gaps:
+[`docs/screenshots/v3.0/INDEX.md`](docs/screenshots/v3.0/INDEX.md).
 
-* **Buttons** — throttle, brake, clutch, handbrake, gear, recover, winch, starter.
-* **Slider** — vertical analog throttle and brake rails, clutch rail; travel is the value.
-* **Pedals** — wide analog accelerator and brake plates, narrower clutch plate.
+| | |
+|---|---|
+| ![Route briefing](docs/screenshots/v3.0/30_route_briefing.png) | ![Dyno](docs/screenshots/v3.0/26_dyno.png) |
+| Route briefing: every number measured from the profile | Dyno: curves swept from the fitted engine |
+| ![Uphill](docs/screenshots/v3.0/41_uphill_dirt.png) | ![Snow](docs/screenshots/v3.0/45_snow.png) |
+| Zagros dirt climb | Glacier Road |
 
-The gear control opens a mechanical gate: in an H-pattern car the lever must pass
-through neutral, and a gear will not engage below 98 % clutch travel unless clutch
-assist is on. Layout (position, size, opacity, side, margins, sensitivity,
-visibility) is editable in the same screen or from the pause menu.
+More: [garage](docs/screenshots/v3.0/11_garage_hilux_an120.png) ·
+[engine lab](docs/screenshots/v3.0/20_engine_lab.png) ·
+[suspension lab](docs/screenshots/v3.0/22_suspension_lab.png) ·
+[tyre shop](docs/screenshots/v3.0/23_tire_shop.png) ·
+[repair](docs/screenshots/v3.0/27_repair.png) ·
+[results](docs/screenshots/v3.0/60_race_results.png) ·
+[controls](docs/screenshots/v3.0/50_controls_buttons.png) ·
+[radio](docs/screenshots/v3.0/08_radio.png)
 
-**Keyboard (desktop testing)** — `W`/`↑` throttle, `S`/`↓` brake, `E`/`PageUp`
-upshift, `Q`/`PageDown` downshift, `Shift` clutch, `Space` handbrake, `T` transfer
-case, `G` differential, `L` winch, `R` recover, `I` start engine, `Esc`/`P` pause,
-`F3` physics overlay.
+## How a race works
 
-## Running it
+1. **Choose a region and a track.** The selection screen shows the elevation profile, the
+   surface mix, your best time and whether the track is unlocked.
+2. **Read the briefing.** Length, ascent, descent, maximum and average grade, the steepest
+   20 m, the surface distribution, and a setup recommendation derived from those numbers.
+3. **Pick the car and the setup.** Vehicle, gearbox, transfer range, differential and tyres
+   are all chosen here and written to the save, so what the briefing shows is what you drive.
+4. **Drive.** Checkpoints, split targets against the reference pace, a ghost of your best
+   run, and a live HUD with gear, rpm, speed, damage and coolant temperature.
+5. **Get paid.** Medal times, credits, XP, a new-record flag, per-vehicle records.
+
+## Tuning: how the parts connect to the physics
+
+Every part writes a real parameter into one model:
+
+```
+density  = (1 + boost / 1.013) * 298.15 / (273.15 + charge_temp)
+torque   = k * displacement * density * volumetric_efficiency * fuel_map
+power    = torque * rpm * TAU / 60
+P_fuel   = min(injector_capacity, pump_capacity)      # caps torque once exceeded
+rpm_lim  = min(cam, head, crank, pistons, rods, ecu)  # the weakest part decides
+```
+
+Consequences you can feel: a bigger turbo does nothing until the injectors, pump and
+intercooler can support the air; a radiator that cannot reject the heat lets the coolant
+climb until the engine derates; a lift kit is required before oversized tyres fit the
+arches; an under-rated gearbox is refused with a reason.
+
+## Building
+
+### Run the tests
 
 ```powershell
-# Editor
-& "$env:USERPROFILE\Godot\Godot_v4.7.2-stable_win64.exe" --path .
-
-# Headless test suite (157 assertions)
 .\tools\local_build\run_tests.ps1
+```
 
-# Android debug APK
+337 assertions across track quality, obstacle removal, vehicle data, parts and tuning,
+thermal behaviour, the dyno, transmissions, save migration, mobile/UI contracts, radio pack
+gates and weather profiles. Exit code 0 means every assertion passed.
+
+### Load every scene
+
+```powershell
+.\tools\scene_smoke.ps1
+```
+
+Instantiates all 15 scenes with the autoloads present and reports any script, resource or
+runtime error. (A plain `--check-only` cannot see autoload singletons and will report false
+`Content`/`GameSession` errors.)
+
+### Build the Android APK
+
+```powershell
 .\tools\local_build\build_android_debug.ps1
 ```
 
-The build scripts resolve the engine, verify its version, import the project when
-the class cache is stale, and write logs under `local-builds/`.
+Exports `local-builds/android/MUDRO-3.0-debug.apk`, then verifies the package id,
+architectures and signature with `aapt2`/`apksigner` and writes
+`local-builds/reports/MUDRO-3.0-BUILD-REPORT.md`. Requires Godot 4.7.2 with the Android
+export templates and an Android SDK; set `GODOT_BIN` if Godot is not in the default
+location.
 
-## Project layout
+### Capture the screenshots
 
-```text
-project.godot            Godot 4.7.2 project (GL Compatibility, 120 Hz physics, 64 px = 1 m)
-scenes/                  boot, menus, route briefing, garage, vehicle config, race
-scripts/
-  core/                  units, locale, settings, save profile, content database, input state, router
-  input/                 touch layer, button/slider/pedal widgets, gear gate panel
-  vehicle/               configs (Resource), transmission profile, engine, gearbox, clutch, wheel, body, visual
-  stages/                stage definitions, catalog, terrain builder (bridges included)
-  race/                  race scene, backdrop, effects, weather, winch
-  ui/                    UI kit, screens, HUD, layout editor, debug overlay
-assets/                  SVG art (vehicles, environments, controls), fonts, synthesised WAV audio
-tests/                   headless suite with real physics and race integration
-tools/                   SVG validator, audio synthesisers, art generators, diagnostics, build scripts
-docs/                    architecture, physics, controls, transmission, baseline audit, 2.0 notes
+```powershell
+& $env:GODOT_BIN --path . --resolution 1280x720 res://tools/capture_v3.tscn
 ```
 
-## Verification
+Not `--headless`: the harness saves what the renderer produced. It snapshots and restores
+the player's own profile.
 
-* **157 automated assertions pass** (`tests/test_runner.tscn`): the original 68
-  physics/progression checks plus input contract, per-vehicle transmissions,
-  H-pattern gate, clutch interlock, automatic kickdown, transfer case,
-  differential coupling, weather, winch, control layout at four aspect ratios,
-  two-finger ownership, route stats, a physical bridge crossing, a real race-scene
-  integration test, configuration persistence and v3 → v4 migration.
-* The APK was **built locally** and its package, architecture and signature were
-  verified. It was **not** installed on the Galaxy A23 in this session (no device
-  was connected); that final device pass is left to the player.
-* Desktop screenshots from 2.0 are in `local-builds/screenshots-v2/`.
+## Technical architecture
 
-See `docs/PHYSICS.md` for the equations, `docs/CONTROLS.md` for the touch
-architecture, `docs/TRANSMISSION.md` for the gearbox model, `docs/MUDRO_2.0.md`
-for the delivery status and known limitations, and `docs/ASSET_LICENSES.md` for
-licensing.
+Godot 4.7.2, typed GDScript, side-view 2D physics at 120 Hz, 64 px per metre.
 
----
+| Layer | Responsibility |
+|---|---|
+| `scripts/core/` | Autoloads: content database, save manager, localisation, settings, input routing, scene router, game session |
+| `scripts/vehicle/` | `VehicleBody` (runtime car), engine/gearbox/clutch/thermal state, wheel axles, damage, visual assembly |
+| `scripts/parts/` | Part definition, catalogue, compatibility rules, `EngineBuild` derivation |
+| `scripts/tracks/`, `scripts/terrain/` | Track definition and profile, track catalogue, terrain builder (road collision, surface paint, scenery) |
+| `scripts/race/` | Race scene, ghost replay, weather, effects, winch |
+| `scripts/garage/` | Garage model (build, sanitise, install), dyno model |
+| `scripts/input/`, `scripts/ui/` | Touch controls and every screen |
+| `scripts/radio/` | Content-pack loader and radio model |
 
-## خلاصهٔ فارسی
+Detailed references: [`docs/ARCHITECTURE_3.0.md`](docs/ARCHITECTURE_3.0.md),
+[`docs/MOUNTAIN_TRACK_DESIGN.md`](docs/MOUNTAIN_TRACK_DESIGN.md),
+[`docs/TUNING_SYSTEM.md`](docs/TUNING_SYSTEM.md),
+[`docs/ENGINE_THERMAL_SYSTEM.md`](docs/ENGINE_THERMAL_SYSTEM.md),
+[`docs/TRANSMISSION_3.0.md`](docs/TRANSMISSION_3.0.md),
+[`docs/VEHICLE_DATABASE.md`](docs/VEHICLE_DATABASE.md).
 
-**مادرو ۲.۰** یک بازی آفرود دو‌بعدی سینمایی برای اندروید است که با گودو ۴.۷.۲ ساخته
-شده. فیزیک خودرو واقعی است: شاسی `RigidBody2D`، دو محور مستقل با تعلیق فنر-دمپر،
-موتور با منحنی گشتاور، گیربکس اختصاصی هر خودرو، کلاچ اصطکاکی و تایر با منحنی لغزش.
+## Assets and licences
 
-در ۲.۰ کنترل موبایل از پایه بازنویسی شد: یک لایهٔ ورودی مشترک، سه پریست واقعی
-(دکمه‌ای، اسلایدر آنالوگ، پدال آنالوگ)، چندانگشتی واقعی با مالکیت مستقل هر انگشت،
-و ویرایشگر چیدمان. هر خودرو گیربکس خودش را دارد: H-pattern با شرط کلاچ ۹۸٪،
-ترتیبی، و اتوماتیک با کیک‌داون؛ به‌همراه جعبهٔ انتقال 2H/4H/4L و دیفرانسیل
-باز/لغزش محدود/قفل.
+All art and audio shipped in the APK is made inside this project: hand-authored SVG for
+vehicles and environments, and audio synthesised from oscillators and noise by
+`tools/artgen/radio_audio.py` and the existing audio generator. The register is
+[`docs/ASSET_LICENSES.md`](docs/ASSET_LICENSES.md) with a machine-readable companion
+[`docs/ASSET_LICENSES.csv`](docs/ASSET_LICENSES.csv); the model pipeline is described in
+[`docs/ASSET_PIPELINE.md`](docs/ASSET_PIPELINE.md).
 
-منطقهٔ چهارم «یال سیاه» با چهار مرحلهٔ جدید اضافه شد (مجموع ۱۶ مرحله)، همراه با
-پل فولادی قابل رانندگی، آب‌وهوای فیزیکی، وینچ واقعی، گرافیک و صدای ارتقایافته و
-صفحهٔ معرفی مسیر. ۱۵۷ تست خودکار عبور می‌کنند و APK محلی امضاشده ساخته شده است.
-تست نهایی روی گوشی واقعی در این سشن انجام نشده و باید با APK تحویلی بررسی شود.
+**Vehicle names and specifications.** Vehicle data comes from published manufacturer
+figures, recorded per number in [`docs/VEHICLE_SPEC_SOURCES.md`](docs/VEHICLE_SPEC_SOURCES.md).
+MUDRO is not affiliated with, endorsed by or sponsored by any manufacturer; marques appear
+only to identify the vehicle being simulated. Any figure that could not be sourced is marked
+as an estimate in that document rather than presented as factory data.
+
+## Known limitations
+
+Stated plainly, because a limitation list that flatters the build is worthless:
+
+* **No Android hardware test in this pass.** The APK builds, signs and verifies, and every
+  scene runs on desktop at 1280×720. It was **not** installed on a Galaxy A23 during this
+  work, so the 60 FPS target on that device is a design goal, not a measurement.
+* **The vehicles are stylised 2D art, not licensed 3D models.** No real 3D model with a
+  commercial licence was found that was also safe to redistribute, so the cars are
+  original drawings matched to each vehicle's real proportions, wheelbase and mechanical
+  data. They are not photorealistic and do not pretend to be renders of real bodies.
+* **No AI rivals yet.** Racing is against the clock and your own ghost. An opponent that
+  teleports or holds a fake constant speed would be worse than none, and a physically
+  honest one is not in this build.
+* **Persian meme/radio content is not shipped.** The radio framework, pack format and
+  validation exist and are tested; the packs themselves must be supplied with documented
+  rights. The APK carries only project-made audio.
+* **Dyno before/after is a two-pull flow**, not a single side-by-side screen.
+* **Some part parameters are coarser than others.** Compression ratio and throttle-response
+  values are read but their effect on the final torque curve is small; rods, pistons, cam,
+  head, turbo, intercooler, injectors, pump, radiator, fan, ECU and gearbox all change
+  measured output.
+* **English UI is complete but only the Persian layout is documented in the screenshots.**
+
+## Credits
+
+Built with Godot 4.7.2. Vazirmatn font by Saber Rastikerdar (SIL Open Font License).
+All vehicle, environment and interface art authored for this project; see
+[`docs/ASSET_LICENSES.md`](docs/ASSET_LICENSES.md) and the in-game Credits screen.
