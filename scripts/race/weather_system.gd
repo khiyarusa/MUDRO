@@ -14,16 +14,22 @@ const PROFILES: Dictionary = {
 	"heavy_rain": {"fa": "باران شدید", "en": "Heavy rain", "grip": 0.88, "rr": 1.10, "fog": 0.18, "rain": 2.0, "snow": 0.0, "light": 0.74},
 	"snow": {"fa": "برف", "en": "Snow", "grip": 0.86, "rr": 1.14, "fog": 0.14, "rain": 0.0, "snow": 1.0, "light": 0.88},
 	"fog": {"fa": "مه", "en": "Fog", "grip": 0.96, "rr": 1.02, "fog": 0.30, "rain": 0.0, "snow": 0.0, "light": 0.90},
+	# Wind is not just a picture: it drags on the body and pushes spray sideways, so
+	# an exposed ridge costs speed even though the road itself is unchanged.
+	"wind": {"fa": "باد", "en": "Wind", "grip": 0.97, "rr": 1.03, "fog": 0.12,
+		"rain": 0.0, "snow": 0.0, "light": 0.93, "wind": 1.0},
 }
 
 var id: String = "clear"
 var grip_scale: float = 1.0
 var rr_scale: float = 1.0
+var wind_scale: float = 0.0
 var quality: int = 2
 
 var _layer: CanvasLayer
 var _rain: CPUParticles2D
 var _snow: CPUParticles2D
+var _wind: CPUParticles2D
 var _fog: TextureRect
 var _streak: Texture2D
 var _flake: Texture2D
@@ -34,6 +40,7 @@ func setup(environment: String, weather_id: String, quality_level: int = 2) -> v
 	var p: Dictionary = PROFILES[id] as Dictionary
 	grip_scale = float(p.get("grip", 1.0))
 	rr_scale = float(p.get("rr", 1.0))
+	wind_scale = float(p.get("wind", 0.0))
 	if id == "clear":
 		return
 	_streak = _streak_texture()
@@ -61,11 +68,21 @@ func setup(environment: String, weather_id: String, quality_level: int = 2) -> v
 		_snow = _make_precip(_flake, 110 if quality == 2 else 60, 1.5, Vector2(0.15, 1.0), 70.0, 3.4)
 		_snow.color = Color(0.96, 0.97, 1.0, 0.8)
 		_layer.add_child(_snow)
+	if wind_scale > 0.0 and quality > 0:
+		# Wind is shown as dust streaks crossing the frame, not as falling weather.
+		_wind = _make_precip(_streak, 46 if quality == 2 else 24, 1.9, Vector2(1.0, 0.12), 520.0, 2.2)
+		_wind.color = Color(0.86, 0.82, 0.74, 0.30)
+		_layer.add_child(_wind)
 
 func apply_to(vehicle: VehicleBody) -> void:
 	if vehicle == null:
 		return
 	vehicle.apply_surface_conditions(grip_scale, rr_scale)
+	if wind_scale > 0.0:
+		vehicle.apply_wind(wind_scale)
+
+func is_windy() -> bool:
+	return wind_scale > 0.0
 
 func label() -> String:
 	var p: Dictionary = PROFILES.get(id, PROFILES["clear"]) as Dictionary
@@ -93,6 +110,9 @@ func _process(_delta: float) -> void:
 		_snow.position = Vector2(view.x * 0.5, -30.0)
 		_snow.emission_rect_extents = Vector2(view.x * 0.62, 12.0)
 		_snow.gravity.x = sin(Time.get_ticks_msec() * 0.0004) * 34.0
+	if _wind != null:
+		_wind.position = Vector2(-view.x * 0.2, view.y * 0.45)
+		_wind.emission_rect_extents = Vector2(40.0, view.y * 0.42)
 
 func _make_precip(tex: Texture2D, amount: int, lifetime: float, direction: Vector2, speed: float, scale_px: float) -> CPUParticles2D:
 	var p := CPUParticles2D.new()

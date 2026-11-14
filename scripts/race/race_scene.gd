@@ -8,7 +8,7 @@ extends Node2D
 
 const INTRO_TIME: float = 3.2
 
-var stage: StageDef
+var stage: TrackDef
 var terrain: TerrainBuilder
 var vehicle: VehicleBody
 var camera: Camera2D
@@ -44,12 +44,19 @@ var _roll_cooldown: float = 0.0
 var _input_state: VehicleInputState = VehicleInputState.new()
 var _layout_editor: ControlLayoutEditor = null
 var _turbo_audio: AudioStreamPlayer
+var splits: Array = []
+var split_targets: PackedFloat32Array = PackedFloat32Array()
+var heat_peak_c: float = 0.0
+var clutch_slip_s: float = 0.0
+var ghost: GhostReplay = null
+var _recording: Array[Dictionary] = []
+var _record_accum: float = 0.0
 
 func _ready() -> void:
 	stage = GameSession.stage_def()
 	if stage == null:
-		if not Content.stages.is_empty():
-			GameSession.start_stage(Content.stages[0].id, "career")
+		if not Content.tracks.is_empty():
+			GameSession.start_stage(Content.tracks[0].id, "rally")
 			stage = GameSession.stage_def()
 	if stage == null:
 		Router.goto("res://scenes/menus/main_menu.tscn")
@@ -60,6 +67,7 @@ func _ready() -> void:
 	countdown = INTRO_TIME
 	hud.set_time(0.0)
 	hud.set_checkpoint(0, stage.checkpoints.size() + 1)
+	split_targets = stage.split_targets()
 	GameSession.race_attempt += 1
 	if OS.get_cmdline_args().has("--autodrive"):
 		_autodrive = true
@@ -76,7 +84,7 @@ func _build_world() -> void:
 	weather = WeatherSystem.new()
 	weather.name = "Weather"
 	add_child(weather)
-	weather.setup(stage.environment, _weather_id(), SettingsService.quality)
+	weather.setup(stage.region, _weather_id(), SettingsService.quality)
 
 	var tint := CanvasModulate.new()
 	tint.color = _ambient_color() * weather.ambient_tint()
@@ -96,11 +104,12 @@ func _build_world() -> void:
 	camera.limit_bottom = 40000
 	add_child(camera)
 	camera.make_current()
-	backdrop.setup(stage.environment, camera)
+	backdrop.setup(stage.region, camera)
 
 	vehicle = VehicleBody.new()
 	vehicle.name = "Vehicle"
 	add_child(vehicle)
+	vehicle.ambient_c = GameSession.ambient_c()
 	vehicle.setup(def, Content.surfaces)
 	vehicle.attach_surface_probe(terrain)
 	vehicle.configure_driver(SettingsService.clutch != "manual")
@@ -115,6 +124,11 @@ func _build_world() -> void:
 	vehicle.transfer_changed.connect(_on_transfer_changed)
 	vehicle.diff_changed.connect(_on_diff_changed)
 	weather.apply_to(vehicle)
+	ghost = GhostReplay.new()
+	ghost.name = "Ghost"
+	add_child(ghost)
+	ghost.setup(stage.id, def, true)
+	ghost.start_replay()
 	if vehicle.gearbox.profile != null and vehicle.gearbox.profile.is_automatic():
 		vehicle.gearbox.range_id = "D"
 		vehicle.gearbox.reset(0)
@@ -126,7 +140,7 @@ func _build_world() -> void:
 	effects = RaceEffects.new()
 	effects.name = "Effects"
 	add_child(effects)
-	effects.setup(vehicle, stage.environment, SettingsService.quality)
+	effects.setup(vehicle, stage.region, SettingsService.quality)
 
 	if def.has_winch and def.active_winch:
 		winch = WinchSystem.new()
@@ -174,24 +188,30 @@ func _build_world() -> void:
 func _weather_id() -> String:
 	if stage.weather != "" and stage.weather != "auto":
 		return stage.weather
-	match stage.environment:
-		"quarry":
-			return "snow" if stage.id.ends_with("04") else "cloudy"
+	match stage.region:
+		"alpine":
+			return "cloudy"
 		"pine":
-			return "fog" if stage.id.ends_with("03") else "cloudy"
+			return "fog"
 		"black_ridge":
 			return "fog"
+		"glacier":
+			return "snow"
 		_:
 			return "clear"
 
 func _ambient_color() -> Color:
-	match stage.environment:
+	match stage.region:
 		"pine":
 			return Color(0.86, 0.93, 0.88)
-		"quarry":
+		"alpine":
 			return Color(0.88, 0.94, 1.02)
+		"glacier":
+			return Color(0.90, 0.96, 1.06)
 		"black_ridge":
 			return Color(0.72, 0.73, 0.72)
+		"zagros":
+			return Color(1.05, 0.98, 0.90)
 		_:
 			return Color(1.03, 0.98, 0.92)
 
@@ -200,13 +220,16 @@ func _build_audio() -> void:
 	var engine_name: String = "engine_ranger"
 	var high_name: String = "engine_ranger_high"
 	match vehicle_id:
-		"rocky_buggy":
+		"jimny_jb74":
 			engine_name = "engine_buggy"
 			high_name = "engine_buggy_high"
-		"dune_pickup":
+		"patrol_y61":
 			engine_name = "engine_pickup"
 			high_name = "engine_pickup_high"
-		"titan_offroad":
+		"pajero_v80":
+			engine_name = "engine_ranger"
+			high_name = "engine_ranger_high"
+		"lc79":
 			engine_name = "engine_titan"
 			high_name = "engine_titan_high"
 	engine_audio = AudioDirector.make_loop(engine_name, "Engine", -9.0)
@@ -232,7 +255,7 @@ func _build_audio() -> void:
 		winch_audio = AudioDirector.make_loop("winch_loop", "SFX", -60.0)
 		if winch_audio != null:
 			winch_audio.play()
-	var ambience_name: String = String(Content.env_meta(stage.environment).get("ambience", "ambience_canyon"))
+	var ambience_name: String = String(Content.region_meta(stage.region).get("ambience", "ambience_canyon"))
 	if not AudioDirector.has(ambience_name):
 		ambience_name = "ambience_quarry" if AudioDirector.has("ambience_quarry") else "ambience_canyon"
 	ambience = AudioDirector.make_loop(ambience_name, "Ambience", -16.0)
@@ -264,6 +287,23 @@ func _process(delta: float) -> void:
 		"racing":
 			elapsed += delta
 			hud.set_time(elapsed)
+			if vehicle.thermal != null:
+				heat_peak_c = maxf(heat_peak_c, vehicle.thermal.coolant_temp_c)
+				if hud.has_method("set_thermal"):
+					hud.set_thermal(vehicle.thermal.coolant_temp_c, vehicle.thermal.power_derate(), vehicle.thermal.critical)
+			if vehicle.clutch != null and vehicle.clutch.slip_rpm > 250.0:
+				clutch_slip_s += delta
+			if ghost != null:
+				ghost.advance(delta)
+			_record_accum += delta
+			if _record_accum >= GhostReplay.SAMPLE_DT:
+				_record_accum = 0.0
+				_recording.append({
+					"t": elapsed,
+					"x": vehicle.global_position.x,
+					"y": vehicle.global_position.y,
+					"r": vehicle.rotation,
+				})
 			if _autodrive:
 				_drive_auto(delta)
 				_log_autodrive()
@@ -472,6 +512,7 @@ func _check_progress() -> void:
 		var gate_x: float = stage.checkpoints[checkpoint_index] * Units.PPM
 		if x >= gate_x:
 			checkpoint_index += 1
+			splits.append(elapsed)
 			hud.set_checkpoint(checkpoint_index, stage.checkpoints.size() + 1)
 			AudioDirector.play("checkpoint", -6.0)
 			hud.toast("%s %d/%d" % [Loc.t("race_checkpoint"), checkpoint_index, stage.checkpoints.size() + 1])
@@ -481,7 +522,7 @@ func _check_progress() -> void:
 	if x >= terrain.finish_x_px():
 		_finish()
 		return
-	var ground_y: float = terrain.height_at_world(clampf(x, 0.0, stage.length_m * Units.PPM))
+	var ground_y: float = terrain.height_at_world(clampf(x, 0.0, stage.length_m() * Units.PPM))
 	if vehicle.global_position.y > ground_y + 1100.0:
 		_recover()
 	if vehicle.global_position.y > 20000.0:
@@ -644,10 +685,22 @@ func _finish() -> void:
 	for p: AudioStreamPlayer in [engine_audio, roll_dirt, roll_rock, roll_snow, skid_audio, winch_audio]:
 		if p != null:
 			p.volume_db = -80.0
-	var result: Dictionary = GameSession.finish(elapsed, vehicle.damage.total_health(), top_speed)
+	var result: Dictionary = GameSession.finish(elapsed, vehicle.damage.total_health(), top_speed,
+		{"splits": splits, "targets": split_targets})
+	if vehicle.thermal != null:
+		heat_peak_c = maxf(heat_peak_c, vehicle.thermal.coolant_temp_c)
+	var load_avg: float = clampf(vehicle.engine.power_kw() / maxf(vehicle.definition.peak_power_kw(), 1.0), 0.0, 1.5)
+	SaveManager.apply_race_wear(GameSession.vehicle_id, elapsed, load_avg, heat_peak_c, clutch_slip_s)
+	if ghost != null and bool(result.get("new_best", false)):
+		ghost.save_run(elapsed, _recording, GameSession.vehicle_id)
 	if int(result.get("medal", 0)) > 0:
 		AudioDirector.play("medal", -5.0)
 	hud.show_results(result)
+	# The driving controls belong to the race scene, not to the HUD, so the HUD's
+	# own dim cannot cover them. Hide them explicitly or they sit on top of the
+	# results card.
+	if controls != null:
+		controls.visible = false
 	get_tree().paused = true
 
 func _pause() -> void:
@@ -656,6 +709,7 @@ func _pause() -> void:
 	state = "paused"
 	if controls != null:
 		controls.release_all()
+		controls.visible = false
 	vehicle.set_input_state(VehicleInputState.new())
 	get_tree().paused = true
 	hud.show_pause(true)
@@ -669,6 +723,8 @@ func _resume() -> void:
 		_layout_editor = null
 	get_tree().paused = false
 	state = "racing"
+	if controls != null:
+		controls.visible = true
 	vehicle.set_input_state(VehicleInputState.new())
 	hud.show_pause(false)
 
@@ -695,8 +751,8 @@ func _restart() -> void:
 
 func _continue() -> void:
 	get_tree().paused = false
-	var nxt: StageDef = GameSession.next_stage()
-	if nxt != null and SaveManager.is_stage_unlocked(nxt.id):
+	var nxt: TrackDef = GameSession.next_track()
+	if nxt != null and SaveManager.is_track_unlocked(nxt.id):
 		GameSession.start_stage(nxt.id, GameSession.mode)
 		Router.goto("res://scenes/race/race.tscn", 0.14)
 	else:

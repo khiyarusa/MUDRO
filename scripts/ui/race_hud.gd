@@ -17,7 +17,7 @@ signal winch_pressed
 signal layout_pressed
 
 var vehicle: VehicleBody
-var stage: StageDef
+var stage: TrackDef
 var objective_text: String = ""
 
 var _root: Control
@@ -41,6 +41,8 @@ var _transfer_btn: Button
 var _diff_btn: Button
 var _winch_btn: Button
 var _weather_label: Label
+var _coolant_btn: Button
+var _results_visible: bool = false
 var _status_row: HBoxContainer
 var _timer_panel: Panel
 var _right_panel: Panel
@@ -48,7 +50,7 @@ var _drive_panel: Panel
 var _pause_btn: Button
 var _safe: Rect2
 
-func setup(v: VehicleBody, def: StageDef, objective: String) -> void:
+func setup(v: VehicleBody, def: TrackDef, objective: String) -> void:
 	vehicle = v
 	stage = def
 	objective_text = objective
@@ -122,6 +124,12 @@ func _build() -> void:
 	_winch_btn = _chip(Loc.t("ctl_winch"), "icon_winch")
 	_winch_btn.pressed.connect(func() -> void: winch_pressed.emit())
 	_status_row.add_child(_winch_btn)
+	# Coolant temperature is driven by the thermal model in VehicleBody; the chip
+	# turns amber on derate and red on overheat so a long climb is readable at a
+	# glance without opening a menu.
+	_coolant_btn = _chip("%d°C" % 88, "rpm")
+	_coolant_btn.disabled = true
+	_status_row.add_child(_coolant_btn)
 
 	# --- bottom centre telemetry ---
 	_drive_panel = UIKit.hud_panel(12)
@@ -328,6 +336,23 @@ func set_weather(text: String) -> void:
 	if _weather_label != null:
 		_weather_label.text = text
 
+## Called every frame by the race scene with the live cooling state. The chip shows
+## the coolant temperature, turns amber while the engine is derating and red at the
+## damage threshold, so the consequence of a long climb is visible in the HUD and
+## not only in the dyno.
+func set_thermal(coolant_c: float, derate: float, critical: bool) -> void:
+	if _coolant_btn == null:
+		return
+	_coolant_btn.text = "%d°C" % int(roundf(coolant_c))
+	var color: Color = UIKit.IVORY
+	if critical:
+		color = UIKit.RED
+	elif derate < 0.999:
+		color = UIKit.AMBER
+	_coolant_btn.add_theme_color_override("font_color", color)
+	_coolant_btn.tooltip_text = Loc.t("nav_hud_overheat") if critical else (
+		Loc.t("nav_hud_derate") if derate < 0.999 else Loc.t("nav_hud_full_power"))
+
 func set_winch_state(attached: bool, tension_kn: float) -> void:
 	if _winch_btn == null:
 		return
@@ -417,13 +442,23 @@ func _build_results() -> void:
 	panel.name = "ResultsCard"
 	center.add_child(panel)
 
+## The live HUD is not part of an end screen: hide its panels behind the card so
+## the result reads as a single, quiet overlay.
+func _set_live_hud_visible(on: bool) -> void:
+	for c: Node in [_timer_panel, _right_panel, _status_row, _drive_panel, _pause_btn]:
+		if c is CanvasItem:
+			(c as CanvasItem).visible = on
+
 func show_pause(visible_state: bool) -> void:
 	if _pause_panel != null:
 		_pause_panel.visible = visible_state
+	_set_live_hud_visible(not visible_state and not _results_visible)
 
 func show_results(result: Dictionary) -> void:
 	if _results_panel == null:
 		return
+	_results_visible = true
+	_set_live_hud_visible(false)
 	var card: Control = _results_panel.get_node_or_null("CenterContainer/ResultsCard")
 	if card == null:
 		card = _results_panel.get_child(1).get_child(0)

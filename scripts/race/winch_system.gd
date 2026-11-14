@@ -18,7 +18,7 @@ const STAKE_FORCE_FACTOR: float = 0.65
 
 var vehicle: VehicleBody
 var terrain: TerrainBuilder
-var stage: StageDef
+var stage: TrackDef
 
 var attached: bool = false
 var anchor: Vector2 = Vector2.ZERO
@@ -33,7 +33,7 @@ var anchor_kind: String = ""
 var _line: Line2D
 var _hook: Sprite2D
 
-func setup(v: VehicleBody, t: TerrainBuilder, s: StageDef) -> void:
+func setup(v: VehicleBody, t: TerrainBuilder, s: TrackDef) -> void:
 	vehicle = v
 	terrain = t
 	stage = s
@@ -151,32 +151,31 @@ func _find_anchor() -> Dictionary:
 	if terrain == null or vehicle == null:
 		return {}
 	var origin: Vector2 = vehicle.global_position
+	var forward: Vector2 = vehicle.global_transform.x.normalized()
+	# 3.0 has no obstacle props on the road, so the anchor is always a real point on
+	# the terrain: ahead of the car, on the uphill side, snapped to the surface. It
+	# is a winch anchor, not a physics cheat: the cable simply pulls.
 	var best: Dictionary = {}
 	var best_score: float = INF
-	var forward: Vector2 = vehicle.global_transform.x.normalized()
-	if stage != null:
-		for entry: Dictionary in stage.obstacles:
-			if not bool(entry.get("solid", true)):
-				continue
-			var x_m: float = float(entry.get("x", 0.0))
-			var y_m: float = terrain.elevation_m(x_m) + float(entry.get("y_offset", 0.0))
-			var point: Vector2 = Vector2(x_m * Units.PPM, -y_m * Units.PPM)
-			var d: float = origin.distance_to(point) / Units.PPM
-			if d < 1.2 or d > max_length:
-				continue
-			# Prefer anchors ahead of the car and uphill: a winch pulls you out, it
-			# does not drag you back down the trail.
-			var dir: Vector2 = (point - origin).normalized()
-			var ahead: float = dir.dot(forward)
-			var uphill: float = -dir.y
-			var score: float = d * 0.4 - ahead * 6.0 - uphill * 5.0
-			if score < best_score:
-				best_score = score
-				best = {"point": point, "kind": "obstacle"}
+	for step: int in range(1, 9):
+		var reach: float = minf(2.0 + float(step) * 1.6, max_length)
+		var probe: Vector2 = origin + forward * reach * Units.PPM
+		var x_px: float = clampf(probe.x, 0.0, terrain.world_length)
+		var y_px: float = terrain.height_at_world(x_px)
+		var point: Vector2 = Vector2(x_px, y_px - 6.0)
+		var d: float = origin.distance_to(point) / Units.PPM
+		if d < 1.2:
+			continue
+		var dir: Vector2 = (point - origin).normalized()
+		var uphill: float = -dir.y
+		if uphill < -0.05:
+			continue
+		var score: float = d * 0.4 - dir.dot(forward) * 6.0 - uphill * 5.0
+		if score < best_score:
+			best_score = score
+			best = {"point": point, "kind": "ground"}
 	if not best.is_empty():
 		return best
-	# Ground stake: ahead and up the slope, snapped to the terrain.
-	var stake: Vector2 = origin + (forward + Vector2(0, -0.6)).normalized() * minf(max_length * 0.55, 9.0) * Units.PPM
-	var x_px: float = clampf(stake.x, 0.0, terrain.world_length)
-	var y_px: float = terrain.height_at_world(x_px)
-	return {"point": Vector2(x_px, y_px - 4.0), "kind": "stake"}
+	var fallback_x: float = clampf(origin.x + forward.x * 6.0 * Units.PPM, 0.0, terrain.world_length)
+	return {"point": Vector2(fallback_x, terrain.height_at_world(fallback_x) - 4.0), "kind": "stake"}
+
