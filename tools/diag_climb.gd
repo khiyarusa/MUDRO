@@ -54,13 +54,14 @@ func _ready() -> void:
 			var rear: WheelAxis = veh.axles[1]
 			var ratio: float = veh.gearbox.total_ratio()
 			var slip_rpm: float = veh.engine.rpm - Units.rpm_from_omega(rear.omega) * ratio
-			print("t=%.2f x=%.1f dy=%.1f v=%5.1f km/h rpm=%4.0f g=%d clut=%.2f tq=%.0f drive=%.0f Nm | F:slip %+.2f F=%.0f N %.0f | R:slip %+.2f F=%.0f N %.0f om=%.1f sliprpm=%.0f" % [
+			print("t=%.2f x=%.1f dy=%.1f v=%5.1f km/h rpm=%4.0f g=%d clut=%.2f tq=%.0f | trans=%s tr=%.2f share0=%.2f live0=%s | F:slip %+.2f F=%.0f N %.0f om=%.2f | R:slip %+.2f F=%.0f N %.0f om=%.2f" % [
 				float(i) / 120.0,
 				(veh.global_position.x - start_x) / Units.PPM,
 				(start_y - veh.global_position.y) / Units.PPM,
 				veh.speed_kmh(), veh.engine.rpm, veh.gearbox.gear,
 				veh.clutch.engagement, veh.clutch.transmitted_torque,
-				veh.clutch.transmitted_torque * ratio * def.gearbox.efficiency,
-				front.slip_ratio, front.tire_force, front.normal_load,
-				rear.slip_ratio, rear.tire_force, rear.normal_load, rear.omega, slip_rpm])
+				veh.gearbox.transfer_id(), veh.gearbox.transfer_ratio(),
+				def.axle_torque_share(0, veh.gearbox.transfer_drives_front()), str(veh.axle_live(0)),
+				front.slip_ratio, front.tire_force, front.normal_load, front.omega,
+				rear.slip_ratio, rear.tire_force, rear.normal_load, rear.omega])
 	get_tree().quit(0)

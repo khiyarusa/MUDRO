@@ -1,4 +1,4 @@
-# MUDRO — Architecture
+# MUDRO — Architecture (2.0)
 
 ## Engine and global settings
 
@@ -11,124 +11,176 @@
 | Gravity | 627.62 px/s² | = 9.80665 × 64 |
 | Viewport | 1280 × 720, `canvas_items`, expand | landscape phone baseline |
 | Scripting | typed GDScript throughout | static checking, readable contracts |
+| Version | 2.0.0 (versionCode 200) | `project.godot`, `export_presets.cfg` |
 
 ## Autoloads
 
 | Autoload | Script | Responsibility |
 |---|---|---|
-| `Loc` | `scripts/core/loc.gd` | fa/en string tables, RTL direction, Vazirmatn font handles |
-| `InputRouter` | `scripts/core/input_router.gd` | registers the shared action set (keyboard + touch) |
-| `SettingsService` | `scripts/core/settings_service.gd` | volumes, language, quality, control sizing, haptics; persists `user://settings.json` |
-| `SaveManager` | `scripts/core/save_manager.gd` | versioned profile, atomic writes, credits, records, unlocks, upgrades |
-| `Content` | `scripts/core/content_db.gd` | builds every `Resource` (surfaces, vehicles, upgrades, stages) at boot |
-| `AudioDirector` | `scripts/audio/audio_director.gd` | audio buses, cached one-shots, looped engine/ambience, UI sounds |
-| `Router` | `scripts/core/scene_router.gd` | scene changes with a fade |
-| `GameSession` | `scripts/core/game_session.gd` | current mode/stage/vehicle, result calculation |
+| `Loc` | `core/loc.gd` | fa/en string tables, RTL direction, Vazirmatn handles |
+| `InputRouter` | `core/input_router.gd` | keyboard action set (WASD, Q/E, T, G, L, R, I, Esc, F3) |
+| `SettingsService` | `core/settings_service.gd` | audio, language, quality, control preset/layout/sensitivity, assist, haptics; `user://settings.json` v3 |
+| `SaveManager` | `core/save_manager.gd` | versioned profile, atomic writes, records, credits, unlocks, upgrades, **driveline config**; `user://profile.json` v4 |
+| `Content` | `core/content_db.gd` | builds every `Resource` at boot (surfaces, vehicles + transmissions, upgrades, environments, 16 stages) |
+| `AudioDirector` | `audio/audio_director.gd` | buses, cached one-shots, looped engine/ambience, UI sounds |
+| `Router` | `core/scene_router.gd` | scene changes with a fade |
+| `GameSession` | `core/game_session.gd` | current mode/stage/vehicle, applied config, result calculation |
 
 ## Data model
 
-All gameplay data is `Resource` based:
+```
+VehicleDef                          scripts/vehicle/vehicle_def.gd
+├── EngineConfig                    torque curve, inertia, friction, redline, turbo
+├── GearboxConfig                   legacy stock view (kept for the derived profile)
+├── TransmissionProfile[]           kind, ratios, final drive, shift, synchro,
+│                                   clutch type/capacity, converter, auto schedule
+├── TireConfig front/rear           radius, mass, mu, peak/slide slip
+├── SuspensionConfig                rest, travel, droop, springs/dampers, bump stop
+├── transfer_ids / transfer_ratios / default_transfer
+├── diff_modes / default_diff
+├── tire_options[] / suspension_options[]      garage-configurable
+├── winch (force, rope, speed)
+└── body polygon, drivetrain, brakes, clutch, sprite paths
+
+StageDef                            scripts/stages/stage_def.gd
+├── elevation keyframes, surface spans, obstacle entries, checkpoints, medals
+├── weather id
+└── route_stats()                   length, max/avg grade, surface split,
+                                    obstacles, climbs, descents  (briefing data)
+
+SurfaceProfile                      scripts/terrain/surface_profile.gd
+TransmissionProfile                 scripts/vehicle/transmission_profile.gd
+UpgradeDef                          scripts/garage/upgrade_def.gd
+```
+
+`Content` builds these from typed tables at startup. `GarageModel.build(base,
+owned_upgrades, config)` deep-copies a `VehicleDef`, applies upgrades **and the
+chosen gearbox / transfer / diff / tyres / suspension**, and returns the object the
+simulation uses. The shared `Content` resources are never mutated.
+
+## Input architecture
 
 ```
-VehicleDef            scripts/vehicle/vehicle_def.gd
-├── EngineConfig      torque curve samples, inertia, friction, redline, turbo
-├── GearboxConfig     ratios, reverse, final drive, efficiency, shift time
-├── TireConfig        radius, wheel mass, mu scale, peak/slide slip
-├── SuspensionConfig  rest length, travel, droop, spring/damper front+rear, bump stop
-└── body polygon, drivetrain, brakes, clutch capacity, sprite paths
-
-StageDef              scripts/stages/stage_def.gd
-├── elevation keyframes (PackedVector2Array, metres)
-├── surface spans (id ranges)
-├── obstacle entries (kind, x, scale, rotation, solid)
-└── checkpoints, medal times, rewards, seed
-
-SurfaceProfile        scripts/terrain/surface_profile.gd
-└── grip peak/slide, rolling resistance, bumpiness, colours, particles, sound
-
-UpgradeDef            scripts/garage/upgrade_def.gd
-└── category, tier, cost and real modifiers (torque, ratios, springs, grip, mass…)
+Keyboard ─┐
+Touch    ─┼─► VehicleInputState ─► RaceScene._read_input ─► VehicleBody.set_input_state()
+Gamepad  ─┘        ▲
+                   └── TouchControls (CanvasLayer 25) — one owner per finger
 ```
 
-`Content` builds these from typed tables at startup so there is one source of truth;
-`GarageModel.build()` deep-copies a `VehicleDef` and applies owned upgrades, so the
-garage changes the simulation, not a label.
+* `core/vehicle_input.gd` — the shared contract; clamps, merges, copies.
+* `input/touch_controls.gd` — pointer routing, presets, layout, persistence.
+* `input/touch_widget.gd`, `touch_button.gd`, `touch_slider.gd`, `touch_pedal.gd`
+  — visual + value only, never write to the vehicle.
+* `input/gear_panel.gd` — H-pattern / sequential / PRNDL gate, projected onto the
+  legal segments generated from the transmission data.
+
+The simulation never reads an input action or a UI node. See `docs/CONTROLS.md`.
 
 ## Scene map
 
 | Scene | Script | Notes |
 |---|---|---|
-| `scenes/boot/boot.tscn` | `ui/boot.gd` | splash, then routes to the menu |
-| `scenes/menus/main_menu.tscn` | `ui/main_menu.gd` | modes, continue, credits, language toggle |
-| `scenes/menus/career.tscn` | `ui/career_screen.gd` | three region cards with real progress |
-| `scenes/menus/stage_select.tscn` | `ui/stage_select.gd` | mode-aware stage grid, locks, medals |
-| `scenes/garage/garage.tscn` | `ui/garage_screen.gd` | roster, live specification, purchase, selection |
+| `scenes/boot/boot.tscn` | `ui/boot.gd` | splash → menu |
+| `scenes/menus/main_menu.tscn` | `ui/main_menu.gd` | modes, continue, credits, language |
+| `scenes/menus/career.tscn` | `ui/career_screen.gd` | four regions in a 2×2 grid, real progress |
+| `scenes/menus/stage_select.tscn` | `ui/stage_select.gd` | mode-aware grid, locks, medals |
+| `scenes/menus/route_briefing.tscn` | `ui/route_briefing.gd` | **new**: real route stats + driveline choice before the run |
+| `scenes/garage/garage.tscn` | `ui/garage_screen.gd` | roster, specification, purchase, selection |
+| `scenes/garage/vehicle_config.tscn` | `ui/vehicle_config.gd` | **new**: gearbox/transfer/diff/tyres/suspension |
 | `scenes/garage/upgrades.tscn` | `ui/upgrade_screen.gd` | 7 categories × 3 tiers with real effects |
-| `scenes/menus/settings.tscn` | `ui/settings_screen.gd` | audio, language, quality, controls, transmission |
-| `scenes/menus/credits.tscn` | `ui/credits_screen.gd` | licensing and attribution |
-| `scenes/race/race.tscn` | `race/race_scene.gd` | builds terrain, vehicle, camera, HUD, audio, timing |
+| `scenes/menus/settings.tscn` | `ui/settings_screen.gd` | audio, language, quality, control layout, assist, haptics |
+| `scenes/race/race.tscn` | `race/race_scene.gd` | terrain, vehicle, camera, HUD, weather, winch, input layer |
+| `ui/control_layout_editor.gd` | overlay | drag-to-place controls; saves normalized centres |
 
-UI is constructed in code through `scripts/ui/ui_kit.gd` (one theme, RTL-aware helpers,
-`label` / `paragraph` / `value_label` so bidi cannot reorder numbers).
-`RaceHUD` builds `TouchScreenButton`s that press the same InputMap actions as the keyboard.
+UI is built in code through `ui/ui_kit.gd` (one theme, RTL-aware helpers,
+`value_label` so bidi cannot reorder numbers).
+
+## Race composition
+
+```
+RaceScene (Node2D)
+├── TerrainBuilder        heightfield, collisions, decor, obstacles, bridges
+├── WeatherSystem         CanvasLayer particles/fog + grip/rr multipliers
+├── CanvasModulate        environment tint × weather tint
+├── Backdrop              CanvasLayer −20, parallax (quality-dependent layers)
+├── Camera2D
+├── VehicleBody           RigidBody2D + VehicleVisual (dampers, coil springs)
+├── RaceEffects           CPUParticles2D driven by slip/surface
+├── WinchSystem           Line2D cable + bounded external force
+├── RaceHUD (CanvasLayer 20)
+├── ControlLayer (CanvasLayer 25) ── TouchControls
+└── DebugOverlay
+```
 
 ## Frame flow
 
 ```
-InputMap actions ──► RaceScene._read_input() ──► VehicleBody.set_inputs()
-                                                   │
-                                    _integrate_forces(state) @120 Hz
-                                                   │
-             raycast per axle ─► suspension force + tyre force + rolling resistance
-             engine torque ──► clutch (locked/slipping) ──► gearbox ──► wheel torque
-                                                   │
-                                    RigidBody2D integrates
-                                                   │
-             telemetry dict ──► RaceHUD (speed, rpm, gear, damage)
-                            ──► RaceEffects (slip-driven particles)
-                            ──► AudioDirector loops (pitch from rpm)
+VehicleInputState ──► RaceScene ──► VehicleBody.set_input_state()
+                                        │
+                          _integrate_forces(state) @120 Hz
+                                        │
+             raycast per axle ─► suspension + tyre + rolling resistance
+             engine torque ─► clutch (lock-up/slip) ─► gearbox
+                          ─► transfer ratio ─► differential ─► wheel torque
+                                        │
+                              RigidBody2D integrates
+                                        │
+             telemetry ─► RaceHUD, RaceEffects, AudioDirector (rpm/surface)
 ```
 
-`RaceScene` also owns checkpoints (x-crossing, more robust than area signals at speed),
-recovery to the last checkpoint, fall detection, finish and result calculation.
+Gear changes go through `VehicleBody.select_gear()`; the winch adds a bounded
+external force through the physics state; weather only scales grip and rolling
+resistance. Nothing writes a position or a speed.
 
 ## Save format
 
-`user://profile.json`, version 3, written to `.tmp` then renamed with a `.bak` copy:
+`user://profile.json`, version 4:
 
 ```json
 {
-  "version": 3,
+  "version": 4,
   "credits": 1000,
   "xp": 120,
   "selected_vehicle": "ranger_4x4",
   "owned_vehicles": ["rocky_buggy", "ranger_4x4"],
   "records": {"canyon_01": {"best_time": 70.0, "medal": 3, "attempts": 2, "completed": true}},
-  "upgrades": {"rocky_buggy": ["engine_1", "engine_2"]},
+  "upgrades": {"rocky_buggy": ["engine_1"]},
+  "config": {
+    "ranger_4x4": {"transmission": "ranger_h5", "transfer": "4H", "diff": "open",
+                   "tires": "at", "suspension": "stock", "winch": true}
+  },
   "play_time_s": 0.0,
   "distance_m": 0.0
 }
 ```
 
-Settings live separately in `user://settings.json` (version 2).
+v3 → v4 migration adds `config: {}` and keeps every other field. Settings live in
+`user://settings.json` (v3) and include `control_preset`, `control_positions`,
+slider sensitivity/return, touch margin and visibility flags.
 
-## Performance notes
+## Performance and quality tiers
 
-* One static body for the whole terrain (concave segment shape), one body per vehicle,
-  one small body per solid obstacle — no per-pixel or per-vertex physics.
-* Terrain is sampled once at build time (0.30 m) and rendered as a single polygon with
-  vertex colours and a ground texture; surface bands are `Line2D`s.
-* Particles are `CPUParticles2D` with small counts (16–70) and scale driven by context.
-* SVG art is rasterised at import; textures stay ≤ 2400×1080.
-* `SettingsService.quality` switches render scaling; 2D MSAA is disabled because GLES3
-  does not support it (verified on the target GPU).
-* The debug overlay is off by default and toggled with `F3`.
+`SettingsService.quality` now changes real work, not a tint:
+
+| | Low | Medium | High |
+|---|---|---|---|
+| Parallax layers | near only | mid + near | far + mid + near |
+| Weather particles | off | half count | full |
+| Exhaust / impact particles | off / 12 | 7 / 12 | 12 / 20 |
+| Fog overlay | 50 % | full | full |
+| Terrain decor density | authored | authored | authored |
+
+Draw calls stay bounded: one terrain polygon, one static body for the heightfield
+(plus one per solid obstacle/bridge), two wheel sprites and four suspension lines
+per vehicle, `CPUParticles2D` everywhere.
 
 ## Adding content
 
-* **Stage** — add a `_mk(...)` entry in `scripts/stages/stage_catalog.gd` (elevation keyframes,
-  surface spans, obstacles, checkpoints, medal times). It appears automatically in career order.
-* **Vehicle** — add a `VehicleDef` block in `Content._build_vehicles()` with its own engine curve,
-  ratios, tyres and suspension. Physics differences come from those numbers.
-* **Surface** — add an entry in `Content._build_surfaces()`; grip, rolling resistance and
+* **Stage** — add a `_mk(...)` entry in `stages/stage_catalog.gd`; set
+  `weather`, obstacles (including `steel_bridge` with `deck_y`) and medals.
+* **Vehicle** — add a `VehicleDef` block in `Content._build_vehicles()` with its
+  engine curve, **transmission profiles**, transfer case and diff options.
+* **Transmission** — new `TransmissionProfile` in the vehicle's `transmissions`
+  array; it appears in the garage and the briefing automatically.
+* **Surface** — add to `Content._build_surfaces()`; grip, rolling resistance and
   colour are picked up by the tyre model and the terrain renderer.

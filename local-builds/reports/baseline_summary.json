@@ -1,0 +1,119 @@
+{
+  "godot_version": "4.7.2.stable.official.ed1daf0bf",
+  "tests_passed": 68,
+  "tests_failed": 0,
+  "screenshots": [
+    "local-builds/screenshots-v2/baseline/01_main_menu.png",
+    "local-builds/screenshots-v2/baseline/02_career.png",
+    "local-builds/screenshots-v2/baseline/03_stage_select.png",
+    "local-builds/screenshots-v2/baseline/04_garage.png",
+    "local-builds/screenshots-v2/baseline/05_upgrades.png",
+    "local-builds/screenshots-v2/baseline/06_settings.png",
+    "local-builds/screenshots-v2/baseline/07_credits.png",
+    "local-builds/screenshots-v2/baseline/08_race_intro.png",
+    "local-builds/screenshots-v2/baseline/09_race_driving.png",
+    "local-builds/screenshots-v2/baseline/10_race_debug.png",
+    "local-builds/screenshots-v2/baseline/11_pine_race.png",
+    "local-builds/screenshots-v2/baseline/12_quarry_race.png"
+  ],
+  "defects": [
+    {
+      "id": "BL-01",
+      "severity": "high",
+      "file": "scripts/vehicle/gearbox_state.gd",
+      "line": 38,
+      "summary": "Gear changes have no clutch interlock: request_gear(target, force) takes no clutch state and nothing in the call chain supplies it; measured shift accepted with the clutch fully open (pedal 0.00, engagement 0.00)."
+    },
+    {
+      "id": "BL-02",
+      "severity": "high",
+      "file": "scripts/vehicle/gearbox_state.gd",
+      "line": 38,
+      "summary": "No road-speed guard on gear selection: reverse was engaged at 35 km/h by pressing gear_down four times (3->2->1->0->-1); one second later the drivetrain had dragged the car from 28.5 to 12.1 km/h."
+    },
+    {
+      "id": "BL-03",
+      "severity": "high",
+      "file": "scripts/ui/race_hud.gd",
+      "line": 41,
+      "summary": "HUD runs with PROCESS_MODE_ALWAYS and TouchScreenButton input is not gated by pause, so a touch while paused still presses the action; measured throttle=true with tree.paused=true and no release on resume."
+    },
+    {
+      "id": "BL-04",
+      "severity": "high",
+      "file": "scripts/ui/race_hud.gd",
+      "line": 194,
+      "summary": "No release path on focus loss or OS interruption: no NOTIFICATION_APPLICATION_FOCUS_OUT / NOTIFICATION_WM_WINDOW_FOCUS_OUT handler and no Input.action_release anywhere in scripts/ (only tools/capture.gd:71)."
+    },
+    {
+      "id": "BL-05",
+      "severity": "medium",
+      "file": "scripts/ui/race_hud.gd",
+      "line": 195,
+      "summary": "No drag/cancel semantics: passby_press=false and no SCREEN_DRAG handling, so a thumb that slides off the pedal keeps the action latched (measured: still pressed at 420,200) until it is lifted."
+    },
+    {
+      "id": "BL-06",
+      "severity": "medium",
+      "file": "scripts/ui/race_hud.gd",
+      "line": 291,
+      "summary": "Fixed centres with scale-multiplied radii: at control_scale 1.35 the gear_down/throttle hit discs overlap by 43 px (175.5 vs 132.5 px) and brake/handbrake by 29.7 px, so the throttle steals part of the gear_down area."
+    },
+    {
+      "id": "BL-07",
+      "severity": "low",
+      "file": "scripts/ui/race_hud.gd",
+      "line": 284,
+      "summary": "Recover button centre is w-58 with r=36, so it overlaps the objective panel (w-316..w-24, y18..96) by 70x14 px and sits 22 px from the right screen edge; visible in 09_race_driving.png and the device capture."
+    },
+    {
+      "id": "BL-08",
+      "severity": "medium",
+      "file": "scripts/ui/race_hud.gd",
+      "line": 249,
+      "summary": "control_opacity is exposed in settings and persisted but never read by the HUD (only control_scale is), so the opacity slider changes nothing."
+    },
+    {
+      "id": "BL-09",
+      "severity": "medium",
+      "file": "scripts/ui/race_hud.gd",
+      "line": 205,
+      "summary": "All seven button faces are painted pixel by pixel in GDScript (nested loops, set_pixel per pixel); RaceHUD.setup() measured 111.0 ms on desktop for 7 buttons / 14 textures, before any mobile cost."
+    },
+    {
+      "id": "BL-10",
+      "severity": "low",
+      "file": "scripts/ui/race_hud.gd",
+      "line": 194,
+      "summary": "visibility_mode = VISIBILITY_ALWAYS draws the seven touch discs on desktop too; every race screenshot shows them over the world."
+    },
+    {
+      "id": "BL-11",
+      "severity": "medium",
+      "file": "scripts/ui/race_hud.gd",
+      "line": 278,
+      "summary": "No safe-area handling: no DisplayServer.get_display_safe_area() anywhere in scripts/, while project.godot uses stretch aspect=expand and sensor-landscape, so pause/timer/recover sit in the cutout zone in one orientation."
+    },
+    {
+      "id": "BL-12",
+      "severity": "low",
+      "file": "scripts/vehicle/gearbox_state.gd",
+      "line": 63,
+      "summary": "Automatic gearbox schedules on engine rpm only (up_rpm/down_rpm plus a 0.45 s hold and a coarse speed gate); no load, gradient or slip input reaches auto_update()."
+    },
+    {
+      "id": "BL-13",
+      "severity": "low",
+      "file": "scripts/ui/race_hud.gd",
+      "line": 293,
+      "summary": "control_scale upscales a raster texture generated at base radius instead of re-rendering it, so the button art is resampled (soft) above 1.0 even though the geometry stays centred and correctly sized."
+    },
+    {
+      "id": "BL-14",
+      "severity": "medium",
+      "file": "tools/local_build/run_tests.ps1",
+      "line": 21,
+      "summary": "A cold checkout cannot run the suite: with no .godot class cache the run exits 2 with 'Parse Error: Could not find type StageDef' until 'godot --headless --path . --import' is run manually; the script has no import step."
+    }
+  ]
+}

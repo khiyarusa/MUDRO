@@ -6,7 +6,7 @@ signal changed
 signal language_changed(code: String)
 
 const PATH: String = "user://settings.json"
-const VERSION: int = 2
+const VERSION: int = 3
 
 var master: float = 1.0
 var engine: float = 0.95
@@ -18,6 +18,18 @@ var haptics: bool = true
 var shake: float = 1.0
 var control_opacity: float = 0.82
 var control_scale: float = 1.0
+var control_preset: String = "buttons"
+var control_left_handed: bool = false
+var control_margin: float = 0.0
+var slider_sensitivity: float = 1.0
+var slider_release: float = 4.5
+var touch_hit_margin: float = 0.18
+var show_clutch: bool = true
+var show_handbrake: bool = true
+var show_winch: bool = true
+var show_recover: bool = true
+## Per-widget centre override from the layout editor, id -> [x, y] in 0..1.
+var control_positions: Dictionary = {}
 var transmission: String = "manual"
 var clutch: String = "assist"
 var show_debug: bool = false
@@ -33,6 +45,11 @@ func _defaults() -> Dictionary:
 		"master": 1.0, "engine": 0.95, "sfx": 0.9, "music": 0.55,
 		"language": "fa", "quality": 2, "haptics": true, "shake": 1.0,
 		"control_opacity": 0.82, "control_scale": 1.0,
+		"control_preset": "buttons", "control_left_handed": false,
+		"control_margin": 0.0, "slider_sensitivity": 1.0, "slider_release": 4.5,
+		"touch_hit_margin": 0.18,
+		"show_clutch": true, "show_handbrake": true, "show_winch": true, "show_recover": true,
+		"control_positions": {},
 		"transmission": "manual", "clutch": "assist", "show_debug": false,
 	}
 
@@ -55,6 +72,20 @@ func load_settings() -> void:
 	shake = clampf(float(d.get("shake", 1.0)), 0.0, 1.5)
 	control_opacity = clampf(float(d.get("control_opacity", 0.82)), 0.25, 1.0)
 	control_scale = clampf(float(d.get("control_scale", 1.0)), 0.8, 1.35)
+	control_preset = String(d.get("control_preset", "buttons"))
+	if not ["buttons", "slider", "pedals"].has(control_preset):
+		control_preset = "buttons"
+	control_left_handed = bool(d.get("control_left_handed", false))
+	control_margin = clampf(float(d.get("control_margin", 0.0)), 0.0, 48.0)
+	slider_sensitivity = clampf(float(d.get("slider_sensitivity", 1.0)), 0.55, 1.8)
+	slider_release = clampf(float(d.get("slider_release", 4.5)), 1.0, 12.0)
+	touch_hit_margin = clampf(float(d.get("touch_hit_margin", 0.18)), 0.0, 0.45)
+	show_clutch = bool(d.get("show_clutch", true))
+	show_handbrake = bool(d.get("show_handbrake", true))
+	show_winch = bool(d.get("show_winch", true))
+	show_recover = bool(d.get("show_recover", true))
+	var positions: Variant = d.get("control_positions", {})
+	control_positions = positions if positions is Dictionary else {}
 	transmission = String(d.get("transmission", "manual"))
 	clutch = String(d.get("clutch", "assist"))
 	show_debug = bool(d.get("show_debug", false))
@@ -65,6 +96,12 @@ func to_dict() -> Dictionary:
 		"master": master, "engine": engine, "sfx": sfx, "music": music,
 		"language": language, "quality": quality, "haptics": haptics, "shake": shake,
 		"control_opacity": control_opacity, "control_scale": control_scale,
+		"control_preset": control_preset, "control_left_handed": control_left_handed,
+		"control_margin": control_margin, "slider_sensitivity": slider_sensitivity,
+		"slider_release": slider_release, "touch_hit_margin": touch_hit_margin,
+		"show_clutch": show_clutch, "show_handbrake": show_handbrake,
+		"show_winch": show_winch, "show_recover": show_recover,
+		"control_positions": control_positions,
 		"transmission": transmission, "clutch": clutch, "show_debug": show_debug,
 	}
 
@@ -135,6 +172,20 @@ func set_value(key: String, value: Variant) -> void:
 		"shake": shake = clampf(float(value), 0.0, 1.5)
 		"control_opacity": control_opacity = clampf(float(value), 0.25, 1.0)
 		"control_scale": control_scale = clampf(float(value), 0.8, 1.35)
+		"control_preset":
+			control_preset = String(value)
+			control_positions = {}
+		"control_left_handed": control_left_handed = bool(value)
+		"control_margin": control_margin = clampf(float(value), 0.0, 48.0)
+		"slider_sensitivity": slider_sensitivity = clampf(float(value), 0.55, 1.8)
+		"slider_release": slider_release = clampf(float(value), 1.0, 12.0)
+		"touch_hit_margin": touch_hit_margin = clampf(float(value), 0.0, 0.45)
+		"show_clutch": show_clutch = bool(value)
+		"show_handbrake": show_handbrake = bool(value)
+		"show_winch": show_winch = bool(value)
+		"show_recover": show_recover = bool(value)
+		"control_positions":
+			control_positions = value if value is Dictionary else {}
 		"transmission": transmission = String(value)
 		"clutch": clutch = String(value)
 		"show_debug": show_debug = bool(value)
@@ -152,6 +203,17 @@ func reset_defaults() -> void:
 	shake = float(d["shake"])
 	control_opacity = float(d["control_opacity"])
 	control_scale = float(d["control_scale"])
+	control_preset = String(d.get("control_preset", "buttons"))
+	control_left_handed = bool(d.get("control_left_handed", false))
+	control_margin = float(d.get("control_margin", 0.0))
+	slider_sensitivity = float(d.get("slider_sensitivity", 1.0))
+	slider_release = float(d.get("slider_release", 4.5))
+	touch_hit_margin = float(d.get("touch_hit_margin", 0.18))
+	show_clutch = bool(d.get("show_clutch", true))
+	show_handbrake = bool(d.get("show_handbrake", true))
+	show_winch = bool(d.get("show_winch", true))
+	show_recover = bool(d.get("show_recover", true))
+	control_positions = {}
 	transmission = String(d["transmission"])
 	clutch = String(d["clutch"])
 	show_debug = bool(d["show_debug"])
@@ -163,3 +225,13 @@ func vibrate(ms: int = 22) -> void:
 	if not haptics:
 		return
 	Input.vibrate_handheld(ms)
+
+## Clears every layout override and returns the preset to its authored layout.
+func reset_control_layout() -> void:
+	control_positions = {}
+	save_settings()
+	changed.emit()
+
+func set_control_position(id: String, normalized: Vector2) -> void:
+	control_positions[id] = [clampf(normalized.x, 0.0, 1.0), clampf(normalized.y, 0.0, 1.0)]
+	changed.emit()

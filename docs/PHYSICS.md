@@ -119,6 +119,37 @@ Reverse is a negative ratio. Automatic mode shifts on rpm with hysteresis and a 
 Stall: in full-manual clutch mode, if rpm falls below `stall_rpm` with the clutch engaged the engine
 dies; the start button then re-cranks with a starter interlock that opens the clutch.
 
+### 6.1 Manual gear selection (2.0)
+
+Gear selection is a request, not an assignment. `GearboxState.can_engage()` answers
+with a reason and `VehicleBody.select_gear()` only applies an accepted shift:
+
+```
+requires_clutch and pedal < 0.98      → REJECT_CLUTCH
+|v| > max_speed_for(gear)·(1+margin)  → REJECT_OVERREV
+v > 1.4 m/s and gear == −1            → REJECT_REVERSE
+shift_timer > 0                       → REJECT_SHIFTING
+```
+
+`max_speed_for()` comes from the redline, the gear ratio, the final drive and the
+wheel radius, so over-revving is a mechanical limit rather than a UI check. In
+clutch-assist mode the interlock is bypassed and the plates slip automatically at
+low speed; the pedal still works in both modes.
+
+### 6.2 Transfer case, differential, converter (2.0)
+
+```
+total_ratio = gear_ratio · final_drive · transfer_ratio
+τ_wheel     = τ_clutch · converter · total_ratio · efficiency · axle_share
+```
+
+* 4L multiplies the driveline (Ranger 2.48, Titan 2.72) and makes the same engine
+  rpm a much lower road speed; 2H removes front-axle torque.
+* A locked differential forces both axle angular speeds equal, an LSD pulls them
+  together by 35 %, an open diff leaves them independent.
+* A torque converter multiplies crank torque up to its stall ratio at low driveline
+  speed and fades to 1:1 at lock-up. It only applies while the automatic is driving.
+
 ## 7. Resistances and grade
 
 Gravity acts through the physics server, so grade resistance is emergent, not scripted:
@@ -139,17 +170,17 @@ full throttle, from rest.
 
 | Scenario | Result |
 |---|---|
-| Ranger 20° hard dirt, 1st gear, 5 s | **+8.27 m**, 32.6 km/h |
-| Ranger 20° hard dirt, 4th gear, 5 s | **−1.47 m** (cannot climb, rolls back) |
+| Ranger 20° hard dirt, 1st gear, 5 s | **+8.72 m**, 30.4 km/h |
+| Ranger 20° hard dirt, 4th gear, 5 s | **−1.33 m** (cannot climb, rolls back) |
 | Ranger 28° hard dirt, 1st gear | +4.52 m |
-| Ranger 20° rock, 1st gear | +9.30 m |
-| Ranger 20° ice, 1st gear | **−0.92 m**, wheels spinning (slip 1.86) |
-| Ranger 18° gravel, 1st gear | +4.36 m |
-| Same, +900 kg | +1.25 m |
-| Pickup 15° gravel, 1st gear | +1.3 m, wheelspin (slip 4.0) |
-| Titan 25° rock, 2nd gear | +6.10 m, 19.7 km/h |
-| Wheel radius 0.28 m vs 0.50 m, flat 3 s | 14.8 vs 33.6 km/h |
-| Downhill 14°, 1st gear vs neutral, 4 s | 17.2 vs 26.3 km/h (engine braking) |
+| Ranger 20° rock, 1st gear | +9.79 m |
+| Ranger 20° ice, 1st gear | **−0.88 m**, wheels spinning |
+| Ranger 18° gravel, 1st gear | +4.37 m |
+| Same, +900 kg | +2.37 m |
+| Pickup 15° gravel, 1st gear | wheelspin, low speed |
+| Titan 25° rock, 2nd gear | climbs |
+| Wheel radius 0.28 m vs 0.50 m, flat 3 s | large difference in reached speed |
+| Downhill 14°, 1st gear vs neutral, 4 s | 19.7 vs 26.3 km/h (engine braking) |
 
 Static checks: both wheels in contact, `sum(N) = 11 582 N` vs weight `11 572 N`, compression
 0.161 m, body upright (−0.004 rad), no sinking through the collider.
@@ -166,3 +197,38 @@ Static checks: both wheels in contact, `sum(N) = 11 582 N` vs weight `11 572 N`,
 
 These keep the simulation stable on a mid-range phone while preserving the relationships that
 matter for gameplay: torque vs rpm, gearing, grip limits, mass, grade and wheel radius.
+
+## 10. Weather (2.0)
+
+Weather is data, not a filter. Each state carries a grip multiplier, a rolling-resistance
+multiplier and a visual log:
+
+| state | grip | rolling | visuals |
+|---|---|---|---|
+| clear | 1.00 | 1.00 | — |
+| cloudy | 0.99 | 1.00 | dim ambient, light fog |
+| rain | 0.94 | 1.05 | rain streaks, fog |
+| heavy rain | 0.88 | 1.10 | denser rain, stronger fog |
+| snow | 0.86 | 1.14 | snow particles, fog |
+| fog | 0.96 | 1.02 | heavy depth fog |
+
+`VehicleBody.apply_surface_conditions()` scales the tyre's peak/slide grip and the
+rolling resistance; it never changes the authored surface data or adds an invisible
+helper force. The multipliers are deliberately mild so a weather state changes how
+a stage drives without making an authored stage impossible.
+
+## 11. Bridges and the winch (2.0)
+
+* A `steel_bridge` obstacle is a real static platform: `deck_y` is authored in
+  metres, the collider top is the deck surface, and `surface_at_world()` reports
+  `steel` on it. The terrain below stays a gap; falling off is possible.
+* The winch is a tension constraint through `VehicleBody.external_force`:
+
+```
+stretch = |v − anchor| − rope_length
+F       = clamp(k·stretch − c·v_radial, 0, rated_pull)
+```
+
+  The cable reels in at `winch_speed_mps`, slack pays out automatically, a ground
+  stake only delivers 65 % of the rated pull, and the force never exceeds the
+  vehicle's rating. It pulls; it never teleports.

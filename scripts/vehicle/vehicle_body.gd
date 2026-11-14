@@ -6,6 +6,9 @@ extends RigidBody2D
 ## acceleration comes from engine torque, tyre forces, gravity and resistance.
 
 signal gear_changed(gear: int)
+signal shift_rejected(reason: String, gear: int)
+signal transfer_changed(mode: String)
+signal diff_changed(mode: String)
 signal engine_stalled
 signal engine_started
 signal impact(strength: float, world_point: Vector2, kind: String)
@@ -26,12 +29,24 @@ var damage: DamageModel = DamageModel.new()
 var throttle_input: float = 0.0
 var brake_input: float = 0.0
 var handbrake_input: float = 0.0
+## Clutch pedal release position: 1.0 = foot off (engaged), 0.0 = fully pressed.
+## The public input contract uses the opposite (pressed) convention; conversion
+## happens only in set_input_state().
 var clutch_input: float = 1.0
 var controls_locked: bool = false
+
+## The shared input contract. Every driver source writes here; the body only reads.
+var input_state: VehicleInputState = VehicleInputState.new()
 
 var auto_clutch: bool = true
 var auto_transmission: bool = false
 var manual_clutch_enabled: bool = false
+
+## Runtime driveline configuration (garage / route briefing).
+var diff_mode: String = "open"
+## Weather and surface conditioning, applied without touching the authored data.
+var surface_grip_scale: float = 1.0
+var surface_rr_scale: float = 1.0
 
 var forward_speed: float = 0.0
 var lateral_speed: float = 0.0
@@ -39,8 +54,12 @@ var airtime: float = 0.0
 var wheels_on_ground: int = 0
 var last_impact_at: float = -10.0
 var engine_running: bool = true
+var _last_gear_seen: int = 0
 
 var _prev_velocity: Vector2 = Vector2.ZERO
+## External force in engine units (px·kg/s²), e.g. a winch cable. Cleared by the
+## system that owns it every physics step; never a permanent invisible assist.
+var external_force: Vector2 = Vector2.ZERO
 var _surface_db: Dictionary = {}
 var _was_airborne: bool = false
 var _air_peak: float = 0.0
@@ -73,14 +92,33 @@ func setup(def: VehicleDef, surfaces: Dictionary = {}) -> void:
 	physics_material_override = mat
 
 	engine = EngineState.new(def.engine)
-	gearbox = GearboxState.new(def.gearbox)
+	var fitted: TransmissionProfile = def.stock_transmission_profile()
+	gearbox = GearboxState.new(fitted)
 	gearbox.engine_redline = def.engine.redline_rpm
-	gearbox.auto_mode = auto_transmission
+	gearbox.wheel_radius = def.tire_rear.radius_m if def.tire_rear != null else 0.4
+	if def.has_transfer_case():
+		gearbox.set_transfer_modes(def.transfer_ids, def.transfer_ratios)
+		var wanted: String = def.active_transfer if def.active_transfer != "" else def.default_transfer
+		if wanted == "":
+			wanted = def.transfer_ids[0]
+		var idx: int = def.transfer_ids.find(wanted)
+		if idx >= 0:
+			gearbox.transfer_index = idx
+	gearbox.auto_mode = gearbox.profile != null and gearbox.profile.is_automatic()
+	auto_transmission = gearbox.auto_mode
+	_last_gear_seen = gearbox.gear
+
+	diff_mode = def.active_diff if def.active_diff != "" else def.default_diff
+	if def.diff_modes.size() > 0 and not def.diff_modes.has(diff_mode):
+		diff_mode = def.diff_modes[0]
 
 	clutch = ClutchState.new()
 	clutch.capacity = def.clutch_capacity
 	clutch.stiffness = def.clutch_stiffness
 	clutch.manual_mode = manual_clutch_enabled
+	if gearbox.profile != null and gearbox.profile.requires_clutch and not auto_clutch:
+		manual_clutch_enabled = true
+		clutch.manual_mode = true
 
 	axles = [WheelAxis.new(0, def.tire_front), WheelAxis.new(1, def.tire_rear)]
 
@@ -125,10 +163,23 @@ func mount_local(axle: int) -> Vector2:
 	return Vector2(x, y) * Units.PPM
 
 func _physics_process(delta: float) -> void:
-	if auto_transmission and engine != null:
-		gearbox.auto_update(delta, engine.rpm, throttle_input, forward_speed)
+	if gearbox == null or engine == null:
+		return
+	if auto_transmission:
+		var load_frac: float = clampf(engine.output_torque() / maxf(engine.config.peak_torque(), 1.0), 0.0, 1.0)
+		var slip: float = absf(axles[1].slip_ratio) if axles.size() > 1 else 0.0
+		gearbox.auto_update(delta, engine.rpm, throttle_input, forward_speed, load_frac, grade_deg(), slip)
 	else:
 		gearbox.update(delta)
+	if gearbox.gear != _last_gear_seen:
+		_last_gear_seen = gearbox.gear
+		gear_changed.emit(gearbox.gear)
+		shifted.emit(gearbox.last_shift_dir)
+
+## Positive when the chassis is climbing in its forward direction, in degrees.
+func grade_deg() -> float:
+	var forward: Vector2 = global_transform.x.normalized()
+	return -rad_to_deg(asin(clampf(forward.y, -1.0, 1.0)))
 
 func _integrate_forces(state: PhysicsDirectBodyState2D) -> void:
 	if definition == null or engine == null:
@@ -149,6 +200,7 @@ func _integrate_forces(state: PhysicsDirectBodyState2D) -> void:
 	lateral_speed = vel.dot(down) / Units.PPM
 
 	_apply_aero(state, vel)
+	_apply_external(state)
 	_update_axles(state, dt, xf, forward, down, vel)
 	_update_drivetrain(dt)
 	_update_damage(state, dt, vel)
@@ -166,6 +218,13 @@ func _apply_aero(state: PhysicsDirectBodyState2D, vel: Vector2) -> void:
 	var drag_n: float = 0.5 * Units.AIR_DENSITY * definition.drag_cd * definition.frontal_area_m2 * speed * speed
 	var force: Vector2 = -v_mps.normalized() * drag_n * Units.PPM
 	state.apply_central_force(force)
+
+## Winch cable, recovery sling or any other legitimate external load. Applying it
+## through the physics state keeps the vehicle a rigid body: a winch pulls, it does
+## not teleport.
+func _apply_external(state: PhysicsDirectBodyState2D) -> void:
+	if external_force.length_squared() > 0.0001:
+		state.apply_central_force(external_force)
 
 func _update_axles(state: PhysicsDirectBodyState2D, dt: float, xf: Transform2D,
 		forward: Vector2, down: Vector2, vel: Vector2) -> void:
@@ -244,7 +303,7 @@ func _update_axles(state: PhysicsDirectBodyState2D, dt: float, xf: Transform2D,
 		var ground_speed: float = contact_vel.dot(tangent) / Units.PPM
 		axle.update_slip(ground_speed)
 		axle.surface = _surface_at(contact)
-		var grip_mult: float = damage.grip_multiplier(i)
+		var grip_mult: float = damage.grip_multiplier(i) * diff_grip_multiplier(i) * surface_grip_scale
 		var peak: float = (axle.surface.grip_peak if axle.surface != null else 0.8) * grip_mult
 		var slide_grip: float = (axle.surface.grip_slide if axle.surface != null else 0.62) * grip_mult
 		var f_long: float = axle.compute_force(peak, slide_grip)
@@ -256,6 +315,7 @@ func _update_axles(state: PhysicsDirectBodyState2D, dt: float, xf: Transform2D,
 		var crr: float = tire.rolling_resistance
 		if axle.surface != null:
 			crr += axle.surface.rolling_resistance
+		crr *= surface_rr_scale
 		var roll_scale: float = 1.0 - clampf(absf(axle.slip_ratio), 0.0, 1.0)
 		var f_rr: float = crr * axle.normal_load * clampf(ground_speed / 0.6, -1.0, 1.0) * roll_scale
 		if absf(f_rr) > 0.01:
@@ -296,7 +356,7 @@ func _update_drivetrain(dt: float) -> void:
 	var driven_omega: float = 0.0
 	var driven_weight: float = 0.0
 	for i: int in range(axles.size()):
-		if definition.is_axle_driven(i):
+		if axle_live(i):
 			# A wheel in the air must not dictate crank speed: weight by contact.
 			var w: float = 1.0 if axles[i].in_contact else 0.12
 			driven_omega += axles[i].omega * w
@@ -304,20 +364,36 @@ func _update_drivetrain(dt: float) -> void:
 	if driven_weight > 0.0:
 		driven_omega /= driven_weight
 
+	# The transfer case multiplies the whole driveline, so the same engine speed
+	# means a lower road speed in 4L. That is the point of a low range.
 	var ratio: float = gearbox.total_ratio()
 	var wheel_rpm: float = Units.rpm_from_omega(driven_omega)
 	var driveline_rpm: float = wheel_rpm * ratio
 
-	clutch.update(dt, clutch_input, gearbox.is_shifting(), engine.rpm, driveline_rpm,
+	var pedal_pressed: float = clampf(1.0 - clutch_input, 0.0, 1.0)
+	clutch.capacity = definition.clutch_capacity
+	clutch.update(dt, pedal_pressed, gearbox.is_shifting(), engine.rpm, driveline_rpm,
 			throttle_input, forward_speed)
 	if ratio == 0.0:
 		clutch.engagement = move_toward(clutch.engagement, 0.0, dt * 8.0)
-		clutch.pedal = clutch.engagement
+		clutch.pedal = 1.0 - clutch.engagement
 
 	var shift_interlock: bool = gearbox.is_shifting() or engine.starter_timer > 0.0
-	if shift_interlock:
-		# Cranking and shifting both happen with the clutch disengaged.
+	if engine.starter_timer > 0.0:
+		# Starter interlock: cranking always happens with the clutch open, even in
+		# full-manual mode, otherwise the engine is dragged to a stop by the wheels.
 		clutch.engagement = 0.0
+	elif gearbox.is_shifting() and not clutch.manual_mode:
+		# Assisted shifts open the clutch automatically. In full manual mode the pedal
+		# is the player's responsibility, and a shift without it is refused before it
+		# ever reaches this function.
+		clutch.engagement = 0.0
+
+	# Clutch assist: slip the plates rather than let a beginner stall while pulling
+	# away or crawling. It never adds torque, it only disengages a little.
+	if auto_clutch and clutch.manual_mode and engine.running and absf(forward_speed) < 1.2:
+		if engine.rpm < engine.config.stall_rpm * 1.55 and clutch.engagement > 0.30:
+			clutch.engagement = move_toward(clutch.engagement, 0.20, dt * 5.0)
 
 	# Friction clutch with a lock-up state. A stiff spring model oscillates at
 	# 120 Hz and lets the engine scream while the wheels crawl; instead the clutch
@@ -353,19 +429,74 @@ func _update_drivetrain(dt: float) -> void:
 			engine_stalled.emit()
 	engine_running = engine.running
 
-	var eff: float = definition.gearbox.efficiency
+	# Torque converter: multiplies crank torque at low driveline speed and fades to
+	# 1:1 as the turbine catches up. It is not extra power, it is a fluid coupling
+	# and the clutch capacity still bounds what reaches the wheels.
+	var converter: float = 1.0
+	if gearbox.profile != null and gearbox.profile.uses_converter() and ratio != 0.0 and auto_transmission:
+		var lock_rpm: float = maxf(gearbox.profile.converter_lock_rpm, 200.0)
+		converter = lerpf(maxf(gearbox.profile.converter_stall_mult, 1.0), 1.0,
+			clampf(absf(driveline_rpm) / lock_rpm, 0.0, 1.0))
+
+	var eff: float = gearbox.profile.efficiency if gearbox.profile != null else 0.9
+	var parked: bool = gearbox.profile != null and gearbox.profile.is_automatic() and gearbox.parking_lock()
+	var transfer_front: bool = gearbox.transfer_drives_front()
 	for i: int in range(axles.size()):
 		var axle: WheelAxis = axles[i]
-		var share: float = definition.axle_torque_share(i)
+		var share: float = definition.axle_torque_share(i, transfer_front)
 		var drive: float = 0.0
 		if share > 0.0 and ratio != 0.0:
-			drive = clutch_torque * ratio * eff * share
+			drive = clutch_torque * converter * ratio * eff * share
 		var brake: float = 0.0
 		if brake_input > 0.001:
 			brake = (definition.brake_torque_front if i == 0 else definition.brake_torque_rear) * brake_input
 		if i == 1 and handbrake_input > 0.001:
 			brake += definition.handbrake_torque * handbrake_input
+		if parked:
+			brake += definition.handbrake_torque * 1.6
 		axle.integrate(dt, drive, brake)
+
+	_apply_differential()
+
+## A locked centre differential forces both axles to the same angular speed; a
+## limited-slip unit only pulls them together. In this side-view model the two
+## physical axles stand in for front and rear, which is exactly the pair a centre
+## diff couples.
+func _apply_differential() -> void:
+	if axles.size() < 2:
+		return
+	var locked: bool = diff_mode == "locked"
+	var limited: bool = diff_mode == "lsd"
+	if not (locked or limited):
+		return
+	if not (axle_live(0) and axle_live(1)):
+		return
+	var w0: float = 1.0 if axles[0].in_contact else 0.25
+	var w1: float = 1.0 if axles[1].in_contact else 0.25
+	var avg: float = (axles[0].omega * w0 + axles[1].omega * w1) / (w0 + w1)
+	var k: float = 1.0 if locked else 0.35
+	axles[0].omega = lerpf(axles[0].omega, avg, k)
+	axles[1].omega = lerpf(axles[1].omega, avg, k)
+
+## Extra effective grip from a locked / limited-slip axle in the 2D model. When
+## both axles are driven the speed coupling already does the work, so this only
+## applies to a single driven axle, where the differential would otherwise lose
+## everything to the spinning side.
+func diff_grip_multiplier(axle: int) -> float:
+	if not axle_live(axle):
+		return 1.0
+	if axle_live(0) and axle_live(1):
+		return 1.0
+	if diff_mode == "locked":
+		return 1.07
+	if diff_mode == "lsd":
+		return 1.035
+	return 1.0
+
+func axle_live(axle: int) -> bool:
+	if definition == null or gearbox == null:
+		return false
+	return definition.axle_torque_share(axle, gearbox.transfer_drives_front()) > 0.0
 
 func _update_damage(state: PhysicsDirectBodyState2D, dt: float, vel: Vector2) -> void:
 	var dv: float = (vel - _prev_velocity).length() / Units.PPM
@@ -415,6 +546,19 @@ func _update_telemetry(state: PhysicsDirectBodyState2D) -> void:
 		},
 		"airtime": airtime,
 		"damage": damage.total_health(),
+		"gear_label": gearbox.gear_label() if gearbox != null else "N",
+		"clutch_pedal": 1.0 - clutch_input,
+		"clutch_engagement": clutch.engagement if clutch != null else 1.0,
+		"clutch_locked": clutch.locked if clutch != null else false,
+		"shift_reject": gearbox.reject_reason if gearbox != null else "",
+		"transfer": gearbox.transfer_id() if gearbox != null else "",
+		"transfer_ratio": gearbox.transfer_ratio() if gearbox != null else 1.0,
+		"diff": diff_mode,
+		"grade_deg": grade_deg(),
+		"auto": auto_transmission,
+		"range": gearbox.range_id if gearbox != null else "",
+		"kickdown": gearbox.is_kickdown() if gearbox != null else false,
+		"shifting": gearbox.is_shifting() if gearbox != null else false,
 	}
 
 func set_inputs(throttle: float, brake: float, handbrake: float = 0.0, clutch: float = 1.0) -> void:
@@ -423,22 +567,89 @@ func set_inputs(throttle: float, brake: float, handbrake: float = 0.0, clutch: f
 	handbrake_input = clampf(handbrake, 0.0, 1.0)
 	clutch_input = clampf(clutch, 0.0, 1.0)
 
+## The only path from a driver source into the car. `clutch` arrives as pedal
+## pressure (0 = released, 1 = floor) and is converted once here.
+func set_input_state(s: VehicleInputState) -> void:
+	if s == null:
+		return
+	s.sanitize()
+	input_state = s
+	set_inputs(s.throttle, s.brake, s.handbrake, 1.0 - s.clutch)
+
+## Clutch assist on = the game presses the clutch for you during a shift.
+## Assist off = full manual: the pedal must be pressed to the floor first.
+func configure_driver(clutch_assist: bool) -> void:
+	auto_clutch = clutch_assist
+	var requires_clutch: bool = gearbox != null and gearbox.profile != null and gearbox.profile.requires_clutch
+	# The pedal is always live; assist only (a) lets a shift through without it and
+	# (b) slips the clutch automatically so a beginner cannot stall at the lights.
+	manual_clutch_enabled = requires_clutch
+	auto_transmission = gearbox != null and gearbox.profile != null and gearbox.profile.is_automatic()
+	if clutch != null:
+		clutch.manual_mode = manual_clutch_enabled
+
+func clutch_pedal() -> float:
+	return 1.0 - clutch_input
+
+## Player-initiated gear change. Returns false with `shift_rejected` emitted when
+## the clutch is not fully pressed, the gear would over-rev the engine, or reverse
+## is requested while still rolling.
+func select_gear(target: int, force: bool = false) -> bool:
+	if gearbox == null:
+		return false
+	var clutch_ok: bool = auto_clutch or clutch.is_fully_pressed()
+	if gearbox.profile != null and not gearbox.profile.requires_clutch:
+		clutch_ok = true
+	if not gearbox.request_gear(target, force, clutch_ok, forward_speed):
+		if gearbox.reject_reason != "":
+			shift_rejected.emit(gearbox.reject_reason, target)
+		return false
+	return true
+
 func shift_up() -> void:
-	if gearbox.request_gear(gearbox.gear + 1):
-		shifted.emit(1)
-		gear_changed.emit(gearbox.gear)
+	select_gear(gearbox.gear + 1)
 
 func shift_down() -> void:
-	if gearbox.request_gear(gearbox.gear - 1):
-		shifted.emit(-1)
-		gear_changed.emit(gearbox.gear)
+	select_gear(gearbox.gear - 1)
 
-func set_gear(g: int) -> void:
-	if gearbox.request_gear(g, true):
-		gear_changed.emit(gearbox.gear)
+func set_gear(g: int) -> bool:
+	return select_gear(g, true)
 
 func toggle_reverse() -> void:
 	set_gear(-1 if gearbox.gear >= 0 else 1)
+
+func set_transfer(mode: String) -> bool:
+	if gearbox == null or not gearbox.set_transfer(mode):
+		return false
+	transfer_changed.emit(gearbox.transfer_id())
+	return true
+
+func cycle_transfer() -> String:
+	if gearbox == null:
+		return ""
+	var mode: String = gearbox.cycle_transfer()
+	transfer_changed.emit(mode)
+	return mode
+
+func set_diff(mode: String) -> bool:
+	if definition == null or not definition.diff_modes.has(mode) or mode == diff_mode:
+		return false
+	diff_mode = mode
+	diff_changed.emit(mode)
+	return true
+
+func cycle_diff() -> String:
+	if definition == null or definition.diff_modes.is_empty():
+		return diff_mode
+	var idx: int = definition.diff_modes.find(diff_mode)
+	diff_mode = definition.diff_modes[(idx + 1) % definition.diff_modes.size()]
+	diff_changed.emit(diff_mode)
+	return diff_mode
+
+## Weather / surface conditioning without mutating the authored surface profiles.
+func apply_surface_conditions(grip_scale: float, rr_scale: float = 1.0) -> void:
+	surface_grip_scale = clampf(grip_scale, 0.25, 1.4)
+	surface_rr_scale = clampf(rr_scale, 0.5, 2.5)
 
 func restart_engine() -> void:
 	if engine != null:
@@ -453,9 +664,26 @@ func reset_motion(at: Transform2D) -> void:
 	global_transform = at
 	linear_velocity = Vector2.ZERO
 	angular_velocity = 0.0
+	external_force = Vector2.ZERO
 	for axle: WheelAxis in axles:
 		axle.reset()
 	if gearbox != null:
 		gearbox.reset(gearbox.gear)
 	if engine != null and not engine.running:
 		engine.start()
+
+## Snapshot of the driveline for HUD and tests.
+func driveline_state() -> Dictionary:
+	return {
+		"gear": gearbox.gear if gearbox != null else 0,
+		"label": gearbox.gear_label() if gearbox != null else "N",
+		"ratio": gearbox.total_ratio() if gearbox != null else 0.0,
+		"transfer": gearbox.transfer_id() if gearbox != null else "",
+		"diff": diff_mode,
+		"clutch_pedal": clutch_pedal(),
+		"clutch_engagement": clutch.engagement if clutch != null else 1.0,
+		"manual_clutch": manual_clutch_enabled,
+		"auto": auto_transmission,
+		"range": gearbox.range_id if gearbox != null else "",
+		"reject": gearbox.reject_reason if gearbox != null else "",
+	}

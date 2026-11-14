@@ -161,4 +161,4 @@ func _stage_card(stage: StageDef, number: int) -> Control:
 func _start(stage: StageDef) -> void:
 	GameSession.start_stage(stage.id, GameSession.mode)
 	AudioDirector.ui_confirm()
-	Router.goto("res://scenes/race/race.tscn")
+	Router.goto("res://scenes/menus/route_briefing.tscn")

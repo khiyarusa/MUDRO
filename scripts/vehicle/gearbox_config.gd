@@ -42,3 +42,21 @@ func describe() -> String:
 	for r: float in ratios:
 		parts.append("%.2f" % r)
 	return "%d-speed [%s] final %.2f" % [ratios.size(), ", ".join(parts), final_drive]
+
+## Upgrade path for the 2.0 transmission model: every legacy GearboxConfig can be
+## promoted to a full TransmissionProfile without losing its numbers.
+func to_profile() -> TransmissionProfile:
+	var p := TransmissionProfile.new()
+	p.id = "legacy_%d_speed" % ratios.size()
+	p.name_en = display_name
+	p.name_fa = display_name
+	p.kind = TransmissionProfile.Kind.MANUAL_H
+	p.ratios = ratios.duplicate()
+	p.reverse_ratio = reverse_ratio
+	p.final_drive = final_drive
+	p.efficiency = efficiency
+	p.shift_time = shift_time
+	p.auto_upshift_fraction = auto_upshift_fraction
+	p.auto_downshift_fraction = auto_downshift_fraction
+	p.requires_clutch = true
+	return p

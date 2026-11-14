@@ -8,7 +8,7 @@ config_version=5
 
 config/name="MUDRO"
 config/description="MUDRO — OFFROAD PHYSICS. Persian-first offline off-road physics game."
-config/version="1.0.0"
+config/version="2.0.0"
 run/main_scene="res://scenes/boot/boot.tscn"
 config/features=PackedStringArray("4.7", "GL Compatibility")
 config/icon="res://icon.svg"

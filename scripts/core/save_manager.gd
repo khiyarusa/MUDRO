@@ -7,7 +7,7 @@ signal profile_changed
 signal credits_changed(amount: int)
 
 const PATH: String = "user://profile.json"
-const VERSION: int = 3
+const VERSION: int = 4
 const STARTING_CREDITS: int = 600
 
 var data: Dictionary = {}
@@ -25,6 +25,7 @@ func _default_profile() -> Dictionary:
 		"owned_vehicles": ["rocky_buggy"],
 		"records": {},
 		"upgrades": {},
+		"config": {},
 		"play_time_s": 0.0,
 		"distance_m": 0.0,
 		"created": Time.get_datetime_string_from_system(),
@@ -60,6 +61,11 @@ func _migrate(d: Dictionary) -> Dictionary:
 		d["owned_vehicles"] = ["rocky_buggy"]
 	if not (d["owned_vehicles"] as Array).has("rocky_buggy"):
 		(d["owned_vehicles"] as Array).append("rocky_buggy")
+	# v4: per-vehicle driveline configuration. Older profiles simply get an empty
+	# table and every vehicle falls back to its stock specification, so no progress
+	# or purchase is ever lost by upgrading.
+	if not (d.has("config") and d["config"] is Dictionary):
+		d["config"] = {}
 	return d
 
 func save_profile() -> void:
@@ -239,6 +245,27 @@ func select_vehicle(vehicle_id: String) -> void:
 	data["selected_vehicle"] = vehicle_id
 	save_profile()
 
+func vehicle_config(vehicle_id: String) -> Dictionary:
+	var all: Dictionary = data.get("config", {})
+	var def: VehicleDef = Content.vehicle_by_id(vehicle_id)
+	var stored: Dictionary = all.get(vehicle_id, {})
+	if def == null:
+		return stored
+	return GarageModel.sanitize_config(def, stored)
+
+func set_vehicle_config(vehicle_id: String, cfg: Dictionary) -> void:
+	var all: Dictionary = data.get("config", {})
+	var def: VehicleDef = Content.vehicle_by_id(vehicle_id)
+	all[vehicle_id] = GarageModel.sanitize_config(def, cfg) if def != null else cfg
+	data["config"] = all
+	save_profile()
+	profile_changed.emit()
+
+func set_config_value(vehicle_id: String, key: String, value: Variant) -> void:
+	var cfg: Dictionary = vehicle_config(vehicle_id)
+	cfg[key] = value
+	set_vehicle_config(vehicle_id, cfg)
+
 # ----------------------------------------------------------------- upgrades ---
 
 func vehicle_upgrades(vehicle_id: String) -> Array:
@@ -288,4 +315,5 @@ func summary() -> Dictionary:
 		"completed": completed_count(),
 		"medals": total_medals(),
 		"vehicles": owned_vehicles().size(),
+		"version": int(data.get("version", VERSION)),
 	}

@@ -141,7 +141,7 @@ func _show(vehicle_id: String) -> void:
 	if base == null:
 		return
 	var owned: bool = SaveManager.is_vehicle_owned(vehicle_id)
-	var def: VehicleDef = GarageModel.build(base, SaveManager.vehicle_upgrades(vehicle_id))
+	var def: VehicleDef = GarageModel.build(base, SaveManager.vehicle_upgrades(vehicle_id), SaveManager.vehicle_config(vehicle_id))
 
 	var preview := TextureRect.new()
 	var body_path: String = def.sprite_body
@@ -185,10 +185,16 @@ func _show(vehicle_id: String) -> void:
 	col_a.add_child(UIKit.stat_row(Loc.t("spec_top_speed"), "%d km/h" % int(_top_speed(def)), UIKit.AMBER))
 	col_a.add_child(UIKit.stat_row(Loc.t("spec_weight_power"), "%.1f kg/hp" % def.mass_per_hp()))
 	col_b.add_child(UIKit.stat_row(Loc.t("spec_drive"), _drive_label(def)))
-	col_b.add_child(UIKit.stat_row(Loc.t("spec_gearbox"), def.gearbox.describe()))
+	col_b.add_child(UIKit.stat_row(Loc.t("spec_gearbox"), _transmission_short(def)))
 	col_b.add_child(UIKit.stat_row(Loc.t("spec_wheelbase"), "%.2f m" % def.wheelbase_m))
 	col_b.add_child(UIKit.stat_row(Loc.t("spec_travel"), "%d mm" % int(def.suspension.travel_m * 1000.0)))
 	col_b.add_child(UIKit.stat_row(Loc.t("spec_grip"), "%.2f µ" % def.tire_rear.mu_scale))
+
+	# --- driveline configuration lives on its own page, linked from the actions ---
+	var profile: TransmissionProfile = def.stock_transmission_profile()
+	if profile != null:
+		_detail.add_child(UIKit.divider())
+		_detail.add_child(UIKit.stat_row(Loc.t("garage_setup"), profile.label(Loc.lang) + " · " + str(profile.gear_count()), UIKit.AMBER))
 
 	_detail.add_child(UIKit.spacer(4))
 	var actions := HBoxContainer.new()
@@ -203,6 +209,9 @@ func _show(vehicle_id: String) -> void:
 		var upg := UIKit.button(Loc.t("garage_upgrade"), false, "wrench")
 		upg.pressed.connect(_open_upgrades.bind(vehicle_id))
 		actions.add_child(upg)
+		var setup := UIKit.button(Loc.t("garage_setup"), false, "gearbox")
+		setup.pressed.connect(_open_config.bind(vehicle_id))
+		actions.add_child(setup)
 	else:
 		var unlocked: bool = SaveManager.is_stage_unlocked_vehicle(base)
 		var buy := UIKit.button(Loc.t("garage_buy") + " · " + str(base.price), true, "coin")
@@ -223,11 +232,20 @@ func _drive_label(def: VehicleDef) -> String:
 		_:
 			return Loc.t("drive_awd")
 
+func _transmission_short(def: VehicleDef) -> String:
+	var p: TransmissionProfile = def.stock_transmission_profile()
+	if p == null:
+		return "—"
+	return "%s · %d" % [p.label(Loc.lang), p.gear_count()]
+
 func _top_speed(def: VehicleDef) -> float:
-	var geared: float = def.gearbox.top_speed_mps(def.tire_rear.radius_m, def.engine.max_rpm)
+	var p: TransmissionProfile = def.stock_transmission_profile()
+	if p == null:
+		return 0.0
+	var geared: float = p.top_speed_mps(def.tire_rear.radius_m, def.engine.max_rpm)
 	var torque_at_redline: float = def.engine.torque_at(def.engine.redline_rpm)
-	var top_gear_ratio: float = def.gearbox.total_ratio(def.gearbox.gear_count())
-	var force: float = torque_at_redline * top_gear_ratio * def.gearbox.efficiency / maxf(def.tire_rear.radius_m, 0.1)
+	var top_gear_ratio: float = p.total_ratio(p.gear_count())
+	var force: float = torque_at_redline * top_gear_ratio * p.efficiency / maxf(def.tire_rear.radius_m, 0.1)
 	var drag_term: float = 0.5 * Units.AIR_DENSITY * def.drag_cd * def.frontal_area_m2
 	var drag_limited: float = sqrt(2.0 * maxf(force, 1.0) / maxf(drag_term, 0.05))
 	return minf(geared, drag_limited) * 3.6
@@ -251,3 +269,7 @@ func _buy(vehicle_id: String) -> void:
 func _open_upgrades(vehicle_id: String) -> void:
 	GameSession.vehicle_id = vehicle_id
 	Router.goto("res://scenes/garage/upgrades.tscn")
+
+func _open_config(vehicle_id: String) -> void:
+	GameSession.vehicle_id = vehicle_id
+	Router.goto("res://scenes/garage/vehicle_config.tscn")

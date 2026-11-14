@@ -40,10 +40,17 @@ func _build() -> void:
 	chip.add_child(chip_row)
 	header.add_child(chip)
 
-	var cards := HBoxContainer.new()
-	cards.add_theme_constant_override("separation", 18)
+	var cards_host := ScrollContainer.new()
+	cards_host.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	cards_host.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	root_box.add_child(cards_host)
+	var cards := GridContainer.new()
+	cards.columns = 2
+	cards.add_theme_constant_override("h_separation", 16)
+	cards.add_theme_constant_override("v_separation", 14)
+	cards.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	cards.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	root_box.add_child(cards)
+	cards_host.add_child(cards)
 
 	for meta: Dictionary in Content.environments:
 		cards.add_child(_env_card(meta))
@@ -61,13 +68,14 @@ func _env_card(meta: Dictionary) -> Control:
 	var card := UIKit.panel(16)
 	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	card.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	card.custom_minimum_size = Vector2(0, 268)
 
 	var v := UIKit.vbox(10)
 	card.add_child(v)
 
 	var art := TextureRect.new()
 	art.texture = _env_art(env_id)
-	art.custom_minimum_size = Vector2(0, 150)
+	art.custom_minimum_size = Vector2(0, 96)
 	art.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	art.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
 	art.modulate = Color(1, 1, 1, 0.95)
