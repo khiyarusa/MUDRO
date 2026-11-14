@@ -26,6 +26,15 @@ var hub_world: Vector2 = Vector2.ZERO
 var bottomed_out: bool = false
 var spin_ratio: float = 1.0
 
+## Tyre force is stiff compared with a wheel's inertia: at 120 Hz an explicit
+## update makes the axle oscillate between gripping and spinning every frame
+## instead of accelerating the car. `integrate` therefore sub-steps itself, which
+## is the same fix a stiff spring would need.
+const SUBSTEPS: int = 6
+var _grip_peak: float = 1.0
+var _grip_slide: float = -1.0
+var _ground_speed: float = 0.0
+
 func _init(index: int = 0, cfg: TireConfig = null) -> void:
 	axle_index = index
 	config = cfg
@@ -51,6 +60,7 @@ func surface_speed() -> float:
 	return omega * radius()
 
 func update_slip(ground_speed: float) -> void:
+	_ground_speed = ground_speed
 	if config == null:
 		slip_ratio = 0.0
 		return
@@ -70,6 +80,8 @@ func slip_shape() -> float:
 ## Longitudinal tyre force in newtons. grip_peak/grip_slide are the surface
 ## coefficients; the force is always bounded by grip * normal load.
 func compute_force(grip_peak: float, grip_slide: float = -1.0) -> float:
+	_grip_peak = grip_peak
+	_grip_slide = grip_slide
 	if config == null:
 		tire_force = 0.0
 		return 0.0
@@ -78,6 +90,8 @@ func compute_force(grip_peak: float, grip_slide: float = -1.0) -> float:
 	var s: float = absf(slip_ratio)
 	var over: float = clampf((s - config.peak_slip) / maxf(config.slide_slip - config.peak_slip, 0.001), 0.0, 1.0)
 	var mu: float = lerpf(maxf(grip_peak, 0.0), maxf(grip_slide, 0.0), over) * config.mu_scale
+	if surface != null and not config.surface_bonus.is_empty():
+		mu *= float(config.surface_bonus.get(surface.id, 1.0))
 	tire_force = mu * normal_load * slip_shape() * signf(slip_ratio)
 	if s < 0.0005:
 		tire_force = 0.0
@@ -86,17 +100,23 @@ func compute_force(grip_peak: float, grip_slide: float = -1.0) -> float:
 func integrate(dt: float, drive_torque: float, brake_torque: float) -> void:
 	if config == null:
 		return
-	var reaction: float = tire_force * radius()
-	var net: float = drive_torque - reaction
 	var inertia: float = inertia()
-	omega += net / inertia * dt
-	omega = clampf(omega, -260.0, 260.0)
+	# Sub-step the spin so the tyre reaction cannot overshoot within one frame.
+	var h: float = dt / float(maxi(SUBSTEPS, 1))
+	for _i: int in range(maxi(SUBSTEPS, 1)):
+		update_slip(_ground_speed)
+		compute_force(_grip_peak, _grip_slide)
+		var reaction: float = tire_force * radius()
+		omega += (drive_torque - reaction) / inertia * h
+		omega = clampf(omega, -260.0, 260.0)
 	if brake_torque > 0.0:
 		var delta: float = brake_torque / inertia * dt
 		if absf(omega) <= delta:
 			omega = 0.0
 		else:
 			omega -= signf(omega) * delta
+	update_slip(_ground_speed)
+	compute_force(_grip_peak, _grip_slide)
 	spin_angle = wrapf(spin_angle + omega * dt, -TAU * 512.0, TAU * 512.0)
 
 func contact_speed_kmh() -> float:

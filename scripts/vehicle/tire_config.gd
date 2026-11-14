@@ -14,6 +14,11 @@ extends Resource
 @export var slide_grip_fraction: float = 0.74
 @export var low_speed_regularisation: float = 2.4
 @export var inertia_multiplier: float = 1.9
+## Per-surface grip modifier for the compound: a mud tyre earns +22 % in mud and
+## loses a little on asphalt. Empty means no surface preference.
+@export var surface_bonus: Dictionary = {}
+@export var pressure_bar: float = 2.1
+@export var compound: String = "at"
 
 func wheel_inertia() -> float:
 	return 0.5 * wheel_mass_kg * radius_m * radius_m * inertia_multiplier

@@ -43,11 +43,14 @@ func is_open() -> bool:
 func is_fully_pressed() -> bool:
 	return pedal >= FULLY_PRESSED
 
-## Target plate engagement for a pedal position. A real clutch has free play at
-## the top of the travel and bites over a short window; this is that window.
+## Target plate engagement for a pedal position. `bite_point` is the pedal travel
+## at which the plates separate completely, so engagement falls linearly to zero
+## over the 0.36 of travel below it. That also gives each clutch part a distinct
+## feel: a paddle clutch releases earlier and more abruptly than an organic one.
 func engagement_target(pedal_pos: float) -> float:
-	var travel: float = 1.0 - clampf(pedal_pos, 0.0, 1.0)
-	return clampf((travel - 0.14) / 0.56, 0.0, 1.0)
+	var p: float = clampf(pedal_pos, 0.0, 1.0)
+	var bite: float = clampf(bite_point, 0.25, 0.85)
+	return clampf((bite - p) / 0.36, 0.0, 1.0)
 
 func update(dt: float, pedal_pressed: float, shift_active: bool, engine_rpm: float,
 		driveline_rpm: float, throttle: float, speed_mps: float) -> void:

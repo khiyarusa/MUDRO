@@ -9,6 +9,8 @@ var suspension: PackedFloat32Array = PackedFloat32Array([1.0, 1.0])
 var tires: PackedFloat32Array = PackedFloat32Array([1.0, 1.0])
 var impact_count: int = 0
 var worst_impact: float = 0.0
+## 0..0.7: body armour (steel bumpers, skid plates, sliders) reduces impact damage.
+var protection: float = 0.0
 
 func reset() -> void:
 	chassis = 1.0
@@ -26,7 +28,7 @@ func apply_impact(severity: float, axle: int, durability: float = 1.0) -> void:
 	impact_count += 1
 	worst_impact = maxf(worst_impact, s)
 	var resistance: float = maxf(0.25, durability)
-	var dmg: float = s / resistance
+	var dmg: float = s / resistance * (1.0 - clampf(protection, 0.0, 0.7))
 	chassis = maxf(0.0, chassis - dmg * 0.22)
 	engine_health = maxf(0.0, engine_health - dmg * 0.16)
 	var idx: int = clampi(axle, 0, 1)

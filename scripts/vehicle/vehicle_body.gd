@@ -41,6 +41,8 @@ var input_state: VehicleInputState = VehicleInputState.new()
 var auto_clutch: bool = true
 var auto_transmission: bool = false
 var manual_clutch_enabled: bool = false
+## Crosswind strength from the weather system, applied as a horizontal force.
+var wind_force_scale: float = 0.0
 
 ## Runtime driveline configuration (garage / route briefing).
 var diff_mode: String = "open"
@@ -66,6 +68,11 @@ var _air_peak: float = 0.0
 var _time: float = 0.0
 
 var telemetry: Dictionary = {}
+## Cooling and heat damage live on the body because they depend on speed, load and
+## ambient temperature at the same time.
+var thermal: ThermalState = null
+var ambient_c: float = 22.0
+var heat_damage: float = 0.0
 
 func _ready() -> void:
 	collision_layer = 1
@@ -92,6 +99,7 @@ func setup(def: VehicleDef, surfaces: Dictionary = {}) -> void:
 	physics_material_override = mat
 
 	engine = EngineState.new(def.engine)
+	damage.protection = clampf(def.protection, 0.0, 0.7)
 	var fitted: TransmissionProfile = def.stock_transmission_profile()
 	gearbox = GearboxState.new(fitted)
 	gearbox.engine_redline = def.engine.redline_rpm
@@ -115,12 +123,25 @@ func setup(def: VehicleDef, surfaces: Dictionary = {}) -> void:
 	clutch = ClutchState.new()
 	clutch.capacity = def.clutch_capacity
 	clutch.stiffness = def.clutch_stiffness
+	clutch.bite_point = 0.62
+	var clutch_part: PartDef = def.parts.get(PartDef.Slot.CLUTCH, null) as PartDef
+	if clutch_part != null:
+		clutch.bite_point = clutch_part.num("bite_point", 0.62)
 	clutch.manual_mode = manual_clutch_enabled
 	if gearbox.profile != null and gearbox.profile.requires_clutch and not auto_clutch:
 		manual_clutch_enabled = true
 		clutch.manual_mode = true
 
 	axles = [WheelAxis.new(0, def.tire_front), WheelAxis.new(1, def.tire_rear)]
+
+	thermal = ThermalState.new()
+	if def.engine_build != null:
+		thermal.setup(def.engine_build, ambient_c)
+	else:
+		thermal.capacity_l = maxf(def.mass_kg * 0.004, 4.0)
+		thermal.radiator_kw = maxf(def.peak_power_kw() * 0.95, 30.0)
+		thermal.ambient_c = ambient_c
+		thermal.coolant_temp_c = ambient_c + 4.0
 
 	_build_collision()
 	var visual := VehicleVisual.new()
@@ -190,6 +211,11 @@ func _integrate_forces(state: PhysicsDirectBodyState2D) -> void:
 	_time += dt
 
 	engine.update(dt, 0.0 if controls_locked else throttle_input)
+	if thermal != null:
+		thermal.update(dt, engine.power_kw(), forward_speed, throttle_input)
+		if thermal.critical:
+			heat_damage += (thermal.coolant_temp_c - ThermalState.DAMAGE_START_C) * 0.0025 * dt
+			damage.engine_health = maxf(0.0, damage.engine_health - heat_damage * 0.002 * dt)
 	clutch.manual_mode = manual_clutch_enabled or not auto_clutch
 	var xf: Transform2D = state.transform
 	var forward: Vector2 = xf.x.normalized()
@@ -225,6 +251,11 @@ func _apply_aero(state: PhysicsDirectBodyState2D, vel: Vector2) -> void:
 func _apply_external(state: PhysicsDirectBodyState2D) -> void:
 	if external_force.length_squared() > 0.0001:
 		state.apply_central_force(external_force)
+	var wind: float = wind_force_n(_time)
+	if not is_zero_approx(wind):
+		# Pushed along the world X axis, at the body's centre of mass. The sign
+		# alternates slowly so a gust can unsettle a car mid-climb.
+		state.apply_central_force(Vector2(wind * Units.PPM, 0.0))
 
 func _update_axles(state: PhysicsDirectBodyState2D, dt: float, xf: Transform2D,
 		forward: Vector2, down: Vector2, vel: Vector2) -> void:
@@ -337,6 +368,13 @@ func _update_axles(state: PhysicsDirectBodyState2D, dt: float, xf: Transform2D,
 func vel_y_local(state: PhysicsDirectBodyState2D) -> float:
 	return state.linear_velocity.dot(state.transform.y.normalized()) / Units.PPM
 
+## Heat soak costs power before it costs the engine.
+func _thermal_derate() -> float:
+	return thermal.power_derate() if thermal != null else 1.0
+
+func coolant_temp_c() -> float:
+	return thermal.coolant_temp_c if thermal != null else 0.0
+
 func _point_velocity(state: PhysicsDirectBodyState2D, world_point: Vector2) -> Vector2:
 	var r: Vector2 = world_point - state.transform.origin
 	return state.linear_velocity + Vector2(-state.angular_velocity * r.y, state.angular_velocity * r.x)
@@ -406,7 +444,7 @@ func _update_drivetrain(dt: float) -> void:
 	if can_lock and absf(slip) < 140.0:
 		clutch.locked = true
 		engine.rpm = clampf(driveline_rpm, 0.0, engine.config.redline_rpm)
-		var crank: float = engine.output_torque() * damage.torque_multiplier()
+		var crank: float = engine.output_torque() * damage.torque_multiplier() * _thermal_derate()
 		crank += engine.idle_torque()
 		crank -= engine.friction_torque()
 		if engine.throttle < 0.12:
@@ -417,7 +455,7 @@ func _update_drivetrain(dt: float) -> void:
 		clutch.locked = false
 		clutch_torque = clampf(slip * clutch.stiffness, -capacity_now, capacity_now)
 		clutch.transmitted_torque = clutch_torque
-		var net_engine: float = engine.output_torque() * damage.torque_multiplier() - clutch_torque
+		var net_engine: float = engine.output_torque() * damage.torque_multiplier() * _thermal_derate() - clutch_torque
 		net_engine += engine.idle_torque()
 		net_engine -= engine.friction_torque()
 		engine.integrate(dt, net_engine)
@@ -546,6 +584,12 @@ func _update_telemetry(state: PhysicsDirectBodyState2D) -> void:
 		},
 		"airtime": airtime,
 		"damage": damage.total_health(),
+		"coolant_c": thermal.coolant_temp_c if thermal != null else 0.0,
+		"thermal_derate": _thermal_derate(),
+		"overheat": thermal.critical if thermal != null else false,
+		"heat_warning": thermal.warning if thermal != null else false,
+		"boost": engine.boost if engine != null else 1.0,
+		"power_kw": engine.power_kw() if engine != null else 0.0,
 		"gear_label": gearbox.gear_label() if gearbox != null else "N",
 		"clutch_pedal": 1.0 - clutch_input,
 		"clutch_engagement": clutch.engagement if clutch != null else 1.0,
@@ -650,6 +694,20 @@ func cycle_diff() -> String:
 func apply_surface_conditions(grip_scale: float, rr_scale: float = 1.0) -> void:
 	surface_grip_scale = clampf(grip_scale, 0.25, 1.4)
 	surface_rr_scale = clampf(rr_scale, 0.5, 2.5)
+
+## Crosswind. A steady push is boring, so the gust is a slow sum of two sines and
+## it acts on the body's frontal area, which is why a tall 79 Series is pushed more
+## than a Jimny at the same speed.
+func apply_wind(strength: float = 1.0) -> void:
+	wind_force_scale = clampf(strength, 0.0, 1.5)
+
+func wind_force_n(now_s: float) -> float:
+	if wind_force_scale <= 0.0:
+		return 0.0
+	var gust: float = 0.72 + 0.22 * sin(now_s * 0.63) + 0.06 * sin(now_s * 2.17)
+	var area: float = definition.length_m * definition.height_m if definition != null else 6.0
+	var speed: float = absf(forward_speed)
+	return wind_force_scale * gust * area * (18.0 + 0.55 * speed * speed)
 
 func restart_engine() -> void:
 	if engine != null:

@@ -1,40 +1,90 @@
 class_name VehicleDef
 extends Resource
-## Complete data definition of a vehicle. Everything the simulation needs is here,
-## so the four machines behave differently for mechanical reasons, not cosmetic ones.
+## One real vehicle, described by the data its simulation actually needs.
+##
+## The engine, transmission, suspension and tyre blocks are the factory
+## specification of a single documented model year and trim. The `spec` dictionary
+## keeps the published figures (with their source reference) so
+## docs/VEHICLE_SPEC_SOURCES.md and the in-game spec sheet can never drift away
+## from the physics: a test rebuilds the stock engine from these numbers and
+## compares it against the documented torque and power.
 
 enum Drivetrain { FWD, RWD, AWD }
 
 @export_group("Identity")
-@export var id: String = "ranger_4x4"
-@export var name_fa: String = "رنجر"
-@export var name_en: String = "RANGER 4X4"
-@export var class_fa: String = "شاسی‌بلند"
-@export var class_en: String = "Expedition 4x4"
+@export var id: String = "jimny_jb74"
+@export var name_fa: String = ""
+@export var name_en: String = ""
+@export var class_fa: String = ""
+@export var class_en: String = ""
 @export_multiline var description_fa: String = ""
 @export_multiline var description_en: String = ""
+@export var manufacturer: String = ""
+@export var model_year: int = 2020
+@export var trim: String = ""
 @export var price: int = 0
-@export var unlock_stage: String = ""
+@export var unlock_track: String = ""
+
+@export_group("Documented specification")
+## Published figures and the reference used for them (see VEHICLE_SPEC_SOURCES.md).
+@export var spec: Dictionary = {}
+@export var tyre_size_label: String = ""
+@export var suspension_arch: String = ""
+@export var drivetrain_label: String = ""
+@export var fuel_type: String = "diesel"
+## Published power and torque of the documented variant. Tests compare the
+## parts-derived engine against these figures.
+@export var doc_power_kw: float = 0.0
+@export var doc_torque_nm: float = 0.0
+@export var doc_power_rpm: float = 0.0
+@export var doc_torque_rpm: float = 0.0
+## End of the published torque plateau, in rpm (e.g. "420 Nm @ 1400-3400 rpm" ->
+## 3400). 0 means "not documented" and the engine model falls back to a generic
+## plateau. Without this a high-torque diesel loses power long before its
+## published power peak.
+@export var engine_hold_rpm: float = 0.0
 
 @export_group("Mass and geometry")
-@export var mass_kg: float = 1180.0
-@export var wheelbase_m: float = 2.7
-@export var length_m: float = 4.3
-@export var height_m: float = 1.95
-@export var com_height_m: float = 0.30
+@export var mass_kg: float = 1100.0
+@export var wheelbase_m: float = 2.25
+@export var length_m: float = 3.65
+@export var width_m: float = 1.65
+@export var height_m: float = 1.70
+@export var com_height_m: float = 0.42
 @export var body_polygon_m: PackedVector2Array = PackedVector2Array()
-@export var frontal_area_m2: float = 2.3
-@export var drag_cd: float = 0.62
+@export var frontal_area_m2: float = 1.9
+@export var drag_cd: float = 0.55
 @export var inertia_scale: float = 1.0
 
 @export_group("Drivetrain")
 @export var drivetrain: Drivetrain = Drivetrain.AWD
-@export var torque_split_front: float = 0.42
-@export var brake_torque_front: float = 2100.0
-@export var brake_torque_rear: float = 1500.0
-@export var handbrake_torque: float = 3200.0
-@export var clutch_capacity: float = 420.0
+@export var torque_split_front: float = 0.4
+@export var brake_torque_front: float = 2000.0
+@export var brake_torque_rear: float = 1400.0
+@export var handbrake_torque: float = 2600.0
+@export var clutch_capacity: float = 380.0
 @export var clutch_stiffness: float = 2.6
+## Pedal travel at which the plates are half engaged, from the fitted clutch part.
+@export var clutch_bite_point: float = 0.62
+
+@export_group("Engine data for the parts system")
+@export var engine_family: String = "k15b"
+@export var engine_code: String = "K15B"
+@export var aspiration: String = "na"
+@export var compression: float = 10.5
+@export var displacement_cc: int = 1462
+@export var cylinders: int = 4
+@export var stock_boost_bar: float = 0.0
+@export var stock_spool_rpm: float = 0.0
+@export var injector_flow_cc: float = 220.0
+@export var injector_max_kw: float = 90.0
+@export var pump_lph: float = 90.0
+@export var pump_max_kw: float = 95.0
+@export var radiator_kw: float = 45.0
+@export var coolant_l: float = 5.0
+@export var max_tyre_radius_m: float = 0.36
+## Calibrates the generic engine model to this engine's published torque.
+@export var engine_torque_scale: float = 1.0
 
 @export_group("Components")
 @export var engine: EngineConfig
@@ -43,25 +93,17 @@ enum Drivetrain { FWD, RWD, AWD }
 @export var tire_rear: TireConfig
 @export var suspension: SuspensionConfig
 
-@export_group("Transmission 2.0")
-## Every transmission this vehicle can legally be built with. The first entry is
-## the stock box; the player may only choose from this list.
+@export_group("Transmission")
 @export var transmissions: Array[TransmissionProfile] = []
 @export var stock_transmission: String = ""
-## Transfer case positions the vehicle actually has (empty = single-speed).
 @export var transfer_ids: PackedStringArray = PackedStringArray()
 @export var transfer_ratios: PackedFloat32Array = PackedFloat32Array()
-## Position the vehicle starts a run in when the player has no saved choice.
-## For an off-road game that is 4H, not 2H: 2H is a road mode, not a trail mode.
 @export var default_transfer: String = ""
-## Differential options: "open", "lsd", "locked".
 @export var diff_modes: PackedStringArray = PackedStringArray(["open", "lsd"])
 @export var default_diff: String = "open"
 
 @export_group("Configuration")
-## Tyre sets the player may fit. Each: {id, name_fa, name_en, mu_mult, rr_mult}.
 @export var tire_options: Array[Dictionary] = []
-## Suspension setups. Each: {id, name_fa, name_en, spring_mult, damper_mult, travel_mult, ride_mult}.
 @export var suspension_options: Array[Dictionary] = []
 
 @export_group("Recovery")
@@ -70,25 +112,35 @@ enum Drivetrain { FWD, RWD, AWD }
 @export var winch_rope_m: float = 18.0
 @export var winch_speed_mps: float = 1.4
 
-## Runtime configuration chosen in the garage (applied by GarageModel on the copy).
-## `fitted_transmission` overrides `stock_transmission` for this run without
-## pretending the car was born with that box.
+@export_group("Damage")
+@export var durability: float = 1.0
+@export var impact_tolerance: float = 9.0
+
+@export_group("Presentation")
+@export var sprite_body: String = "res://assets/vehicles/jimny_jb74/body.svg"
+@export var sprite_wheel: String = "res://assets/vehicles/jimny_jb74/wheel.svg"
+@export var art_scale_px_per_m: float = 160.0
+@export var accent_color: Color = Color(0.82, 0.58, 0.24)
+
+## ---------------------------------------------------------------- runtime ---
+## Fitted part per PartDef.Slot. Never authored: GarageModel fills this in from
+## the player's save so the shared Content resource is never mutated.
+var parts: Dictionary = {}
+var part_conditions: Dictionary = {}
+var engine_build: EngineBuild = null
+var build_info: Dictionary = {}
 var fitted_transmission: String = ""
 var fitted_tires: String = ""
 var fitted_suspension: String = ""
 var active_transfer: String = ""
 var active_diff: String = ""
 var active_winch: bool = false
-
-@export_group("Damage")
-@export var durability: float = 1.0
-@export var impact_tolerance: float = 9.0
-
-@export_group("Presentation")
-@export var sprite_body: String = "res://assets/vehicles/ranger_4x4/body.svg"
-@export var sprite_wheel: String = "res://assets/vehicles/ranger_4x4/wheel.svg"
-@export var art_scale_px_per_m: float = 160.0
-@export var accent_color: Color = Color(0.86, 0.55, 0.22)
+var ride_height_add_m: float = 0.0
+var lift_com_add_m: float = 0.0
+var extra_mass_kg: float = 0.0
+var protection: float = 0.0
+var water_ford_m: float = 0.4
+var light_range_m: float = 40.0
 
 func is_axle_driven(axle: int) -> bool:
 	match drivetrain:
@@ -162,7 +214,24 @@ func description(lang: String) -> String:
 	return description_fa if lang == "fa" else description_en
 
 func peak_power_kw() -> float:
+	if engine_build != null:
+		return engine_build.peak_power_kw
 	return engine.peak_power_kw() if engine != null else 0.0
+
+func peak_torque_nm() -> float:
+	if engine_build != null:
+		return engine_build.peak_torque_nm
+	return engine.peak_torque() if engine != null else 0.0
+
+func power_rpm() -> float:
+	if engine_build != null:
+		return engine_build.peak_power_rpm
+	return engine.redline_rpm * 0.8 if engine != null else 0.0
+
+func torque_rpm() -> float:
+	if engine_build != null:
+		return engine_build.peak_torque_rpm
+	return engine.redline_rpm * 0.5 if engine != null else 0.0
 
 func top_speed_kmh() -> float:
 	if gearbox == null or engine == null:
@@ -172,6 +241,9 @@ func top_speed_kmh() -> float:
 func mass_per_hp() -> float:
 	var hp: float = peak_power_kw() * 1.341
 	return mass_kg / maxf(hp, 1.0)
+
+func spec_value(key: String, fallback: Variant = null) -> Variant:
+	return spec.get(key, fallback)
 
 func duplicate_def() -> VehicleDef:
 	return duplicate(true) as VehicleDef
