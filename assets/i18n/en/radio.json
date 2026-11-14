@@ -1,0 +1,11 @@
+{
+	"radio_pause": "PAUSE",
+	"radio_mute": "MUTE",
+	"radio_unmute": "SOUND",
+	"radio_builtin": "BUILT-IN STATION · MADE IN THIS GAME",
+	"radio_pack_from": "AUDIO PACK {id}",
+	"radio_pack_rejected": "REJECTED",
+	"radio_pack_missing": "No external audio pack is installed. To add one, put the pack folder in user://radio_packs.",
+	"radio_attribution": "CREDIT",
+	"radio_seconds": "{s} s"
+}

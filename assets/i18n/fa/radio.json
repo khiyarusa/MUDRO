@@ -1,0 +1,11 @@
+{
+	"radio_pause": "توقف",
+	"radio_mute": "بی‌صدا",
+	"radio_unmute": "صدا",
+	"radio_builtin": "ایستگاه داخلی · ساختهٔ خود بازی",
+	"radio_pack_from": "بستهٔ صوتی {id}",
+	"radio_pack_rejected": "رد شد",
+	"radio_pack_missing": "هیچ بستهٔ صوتی بیرونی نصب نشده. برای افزودن، پوشهٔ بسته را در ‎user://radio_packs‎ بگذار.",
+	"radio_attribution": "اعتبار",
+	"radio_seconds": "{s} ثانیه"
+}
