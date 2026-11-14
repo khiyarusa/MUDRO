@@ -20,12 +20,27 @@ func _ready() -> void:
 	_fonts["black"] = _load_font("res://assets/fonts/Vazirmatn-Black.ttf")
 
 func _load_lang(code: String) -> void:
-	var path: String = "res://assets/i18n/%s.json" % code
+	_dicts[code] = {}
+	_merge_file("res://assets/i18n/%s.json" % code, _dicts[code])
+	# 3.0 splits the string table into fragments so separate screens can own their
+	# own keys without editing one giant file.
+	var fragment_dir: String = "res://assets/i18n/%s" % code
+	var dir: DirAccess = DirAccess.open(fragment_dir)
+	if dir == null:
+		return
+	var names: PackedStringArray = dir.get_files()
+	names.sort()
+	for name: String in names:
+		if name.ends_with(".json"):
+			_merge_file("%s/%s" % [fragment_dir, name], _dicts[code])
+
+func _merge_file(path: String, into: Dictionary) -> void:
 	if not FileAccess.file_exists(path):
-		_dicts[code] = {}
 		return
 	var parsed: Variant = JSON.parse_string(FileAccess.get_file_as_string(path))
-	_dicts[code] = parsed if parsed is Dictionary else {}
+	if parsed is Dictionary:
+		for key: Variant in (parsed as Dictionary).keys():
+			into[String(key)] = (parsed as Dictionary)[key]
 
 func _load_font(path: String) -> Font:
 	if ResourceLoader.exists(path):

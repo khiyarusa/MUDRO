@@ -33,6 +33,10 @@ var control_positions: Dictionary = {}
 var transmission: String = "manual"
 var clutch: String = "assist"
 var show_debug: bool = false
+## MUDRO Radio is opt-in once the player mutes it, and its own level is separate
+## from the music bus so a garage jingle never buries the engine.
+var radio_enabled: bool = true
+var radio_volume: float = 0.55
 
 func _ready() -> void:
 	load_settings()
@@ -51,6 +55,7 @@ func _defaults() -> Dictionary:
 		"show_clutch": true, "show_handbrake": true, "show_winch": true, "show_recover": true,
 		"control_positions": {},
 		"transmission": "manual", "clutch": "assist", "show_debug": false,
+		"radio_enabled": true, "radio_volume": 0.55,
 	}
 
 func load_settings() -> void:
@@ -89,6 +94,8 @@ func load_settings() -> void:
 	transmission = String(d.get("transmission", "manual"))
 	clutch = String(d.get("clutch", "assist"))
 	show_debug = bool(d.get("show_debug", false))
+	radio_enabled = bool(d.get("radio_enabled", true))
+	radio_volume = clampf(float(d.get("radio_volume", 0.55)), 0.0, 1.0)
 
 func to_dict() -> Dictionary:
 	return {
@@ -103,6 +110,7 @@ func to_dict() -> Dictionary:
 		"show_winch": show_winch, "show_recover": show_recover,
 		"control_positions": control_positions,
 		"transmission": transmission, "clutch": clutch, "show_debug": show_debug,
+		"radio_enabled": radio_enabled, "radio_volume": radio_volume,
 	}
 
 func save_settings() -> void:
@@ -189,8 +197,16 @@ func set_value(key: String, value: Variant) -> void:
 		"transmission": transmission = String(value)
 		"clutch": clutch = String(value)
 		"show_debug": show_debug = bool(value)
+		"radio_enabled": radio_enabled = bool(value)
+		"radio_volume": radio_volume = clampf(float(value), 0.0, 1.0)
 	save_settings()
 	apply_all()
+
+func set_radio_enabled(on: bool) -> void:
+	radio_enabled = on
+	if on and radio_volume <= 0.0:
+		radio_volume = 0.55
+	save_settings()
 
 func reset_defaults() -> void:
 	var d: Dictionary = _defaults()

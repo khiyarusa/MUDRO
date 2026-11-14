@@ -52,15 +52,15 @@ func _build() -> void:
 	cards.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	cards_host.add_child(cards)
 
-	for meta: Dictionary in Content.environments:
+	for meta: Dictionary in Content.regions:
 		cards.add_child(_env_card(meta))
 
 func _env_card(meta: Dictionary) -> Control:
 	var env_id: String = String(meta["id"])
-	var list: Array[StageDef] = Content.stages_for(env_id)
+	var list: Array[TrackDef] = Content.tracks_for_region(env_id)
 	var done: int = 0
 	var medals: int = 0
-	for s: StageDef in list:
+	for s: TrackDef in list:
 		if SaveManager.is_completed(s.id):
 			done += 1
 			medals += SaveManager.medal_of(s.id)
@@ -110,12 +110,11 @@ func _env_card(meta: Dictionary) -> Control:
 	return card
 
 func _env_unlocked(env_id: String) -> bool:
-	if env_id == "canyon":
-		return true
-	var list: Array[StageDef] = Content.stages_for(env_id)
+	var list: Array[TrackDef] = Content.tracks_for_region(env_id)
 	if list.is_empty():
 		return false
-	return SaveManager.is_stage_unlocked(list[0].id)
+	# A region opens as soon as its first track is reachable.
+	return SaveManager.is_track_unlocked(list[0].id)
 
 func _env_art(env_id: String) -> Texture2D:
 	var path: String = "res://assets/environments/%s/mid.svg" % env_id
@@ -132,4 +131,5 @@ func _bar_style(color: Color) -> StyleBoxFlat:
 func _open_env(env_id: String) -> void:
 	GameSession.mode = "career"
 	GameSession.env_filter = env_id
+	GameSession.region_filter = env_id
 	Router.goto("res://scenes/menus/stage_select.tscn")

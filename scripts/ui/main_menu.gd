@@ -100,6 +100,9 @@ func _build() -> void:
 	var garage := UIKit.button(Loc.t("menu_garage"), false, "garage")
 	garage.pressed.connect(func() -> void: Router.goto("res://scenes/garage/garage.tscn"))
 	row.add_child(garage)
+	var radio := UIKit.button(Loc.t("nav_menu_radio"), false, "sound")
+	radio.pressed.connect(func() -> void: Router.goto("res://scenes/menus/radio.tscn"))
+	row.add_child(radio)
 	var settings := UIKit.button(Loc.t("menu_settings"), false, "settings")
 	settings.pressed.connect(func() -> void: Router.goto("res://scenes/menus/settings.tscn"))
 	row.add_child(settings)
@@ -111,27 +114,27 @@ func _build() -> void:
 	var footer := HBoxContainer.new()
 	outer.add_child(footer)
 	var prog := UIKit.caption("%s %d/%d  ·  %s %d" % [
-		Loc.t("career_progress"), SaveManager.completed_count(), Content.stages.size(),
+		Loc.t("career_progress"), SaveManager.completed_count(), Content.tracks.size(),
 		Loc.t("career_total"), SaveManager.total_medals()])
 	footer.add_child(prog)
 	footer.add_child(UIKit.spacer(0))
 	var ver := UIKit.caption("v1.0.0 · Godot 4.7.2")
 	footer.add_child(ver)
 
-func _next_playable() -> StageDef:
-	var last_done: StageDef = null
-	for s: StageDef in Content.stages:
+func _next_playable() -> TrackDef:
+	var last_done: TrackDef = null
+	for s: TrackDef in Content.tracks:
 		if SaveManager.is_completed(s.id):
 			last_done = s
 	if last_done == null:
-		return Content.stages[0] if not Content.stages.is_empty() else null
-	var nxt: StageDef = SaveManager.next_stage_after(last_done.id)
+		return Content.tracks[0] if not Content.tracks.is_empty() else null
+	var nxt: TrackDef = SaveManager.next_track_after(last_done.id)
 	return nxt
 
-func _continue_career(stage: StageDef) -> void:
+func _continue_career(stage: TrackDef) -> void:
 	if stage == null:
 		return
-	GameSession.start_stage(stage.id, "career")
+	GameSession.start_track(stage.id, "career")
 	Router.goto("res://scenes/race/race.tscn")
 
 func _open_mode(mode: String) -> void:
