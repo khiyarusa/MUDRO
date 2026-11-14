@@ -1,0 +1,12 @@
+{
+	"briefing_recommend": "پیشنهاد تنظیم",
+	"briefing_warning": "هر تغییری که اینجا می‌دهی روی همان ماشینی اعمال می‌شود که مسابقه می‌دهی.",
+	"briefing_start": "شروع مسابقه",
+	"recommend_low_range": "از دندهٔ سنگین (۴L) استفاده کن",
+	"recommend_short_gears": "نسبت‌های کوتاه‌تر برای این شیب بهتر جواب می‌دهد",
+	"recommend_mud_tires": "تایر گلی برای این سطح",
+	"recommend_rock_tires": "تایر سنگی و فشار باد کمتر",
+	"recommend_snow_tires": "تایر برفی و گاز نرم",
+	"recommend_descent": "سرازیری طولانی: ترمز و دندهٔ پایین",
+	"recommend_standard": "تنظیم استاندارد کارخانه برای این مسیر کافی است"
+}

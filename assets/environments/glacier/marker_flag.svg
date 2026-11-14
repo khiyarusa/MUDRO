@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+<defs>
+<radialGradient id="sh" gradientUnits="userSpaceOnUse" cx="256" cy="506" r="210"><stop offset="0" stop-color="#000000" stop-opacity="0.34"/><stop offset="0.55" stop-color="#000000" stop-opacity="0.18"/><stop offset="1" stop-color="#000000" stop-opacity="0"/></radialGradient>
+</defs>
+<ellipse cx="256" cy="503" rx="110" ry="8" fill="#1a1512" fill-opacity="0.24"/>
+<ellipse cx="256" cy="505" rx="74.8" ry="6" fill="#120e0b" fill-opacity="0.256"/>
+<path d="M248,508 L252,128 L262,128 L258,508 Z" fill="#a8935f"/>
+<path d="M257,504 L259,134 L262,134 L262,504 Z" fill="#c7b27a" fill-opacity="0.65"/>
+<path d="M262,140 L396,166 Q404,182 396,198 L262,196 Z" fill="#c9502f"/>
+<path d="M262,168 L392,182 Q396,190 392,198 L262,196 Z" fill="#e8eef2" fill-opacity="0.9"/>
+<path d="M262,140 L396,166" fill="none" stroke="#f2b39a" stroke-width="2.2" stroke-opacity="0.7" stroke-linecap="round"/>
+<path d="M262,196 L396,198" fill="none" stroke="#8e3a22" stroke-width="2" stroke-opacity="0.6"/>
+<path d="M250,304 L260,303.6 L259.6,320 L249.6,320.4 Z" fill="#f4f9fc"/>
+<ellipse cx="256" cy="497" rx="66" ry="11" fill="#f2f7fa" fill-opacity="0.95"/>
+<ellipse cx="250" cy="493" rx="40" ry="7" fill="#ffffff" fill-opacity="0.7"/>
+<path d="M246,128 L264,128 L262,118 L248,118 Z" fill="#8a7458"/>
+</svg>

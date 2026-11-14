@@ -3,7 +3,7 @@ extends Control
 ## place, before the player commits. Every number comes from StageDef / VehicleDef,
 ## and every choice writes to the save profile, so what is shown is what is driven.
 
-var _stage: StageDef
+var _stage: TrackDef
 var _stats: Dictionary = {}
 var _body: HBoxContainer
 var _config_box: VBoxContainer
@@ -15,14 +15,15 @@ func _ready() -> void:
 	if _stage == null:
 		Router.goto("res://scenes/menus/stage_select.tscn")
 		return
-	_stats = _stage.route_stats()
+	# --- route data, measured from the authored profile -------------------
+	_stats = _stage.stats()
 	_vehicle_id = SaveManager.selected_vehicle()
 	_build()
 
 func _build() -> void:
 	var bg := MenuBackground.new()
 	add_child(bg)
-	bg.setup(_stage.environment, false)
+	bg.setup(_stage.region, false)
 	var dim := ColorRect.new()
 	dim.color = Color(0.03, 0.035, 0.04, 0.72)
 	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -67,16 +68,24 @@ func _build() -> void:
 	left.add_child(left_col)
 	left_col.add_child(UIKit.paragraph(_stage.brief(Loc.lang), 17, UIKit.IVORY))
 	left_col.add_child(UIKit.divider())
-	left_col.add_child(_stat_row(Loc.t("briefing_length"), "%d m" % int(_stats.get("length_m", 0.0))))
-	left_col.add_child(_stat_row(Loc.t("briefing_max_grade"), "%.1f°" % float(_stats.get("max_grade_deg", 0.0)), UIKit.AMBER))
-	left_col.add_child(_stat_row(Loc.t("briefing_avg_grade"), "%.1f°" % float(_stats.get("avg_grade_deg", 0.0))))
-	left_col.add_child(_stat_row(Loc.t("briefing_climbs"), str(int(_stats.get("climbs", 0)))))
-	left_col.add_child(_stat_row(Loc.t("briefing_descents"), str(int(_stats.get("descents", 0)))))
-	left_col.add_child(_stat_row(Loc.t("briefing_obstacles"), str(int(_stats.get("obstacles", 0)))))
+	left_col.add_child(_stat_row(Loc.t("nav_length"), "%d m" % int(_stats.get("length_m", 0.0))))
+	left_col.add_child(_stat_row(Loc.t("nav_ascent"), "+%d m" % int(_stats.get("elevation_gain_m", 0.0)), UIKit.TEAL))
+	left_col.add_child(_stat_row(Loc.t("nav_descent"), "-%d m" % int(_stats.get("elevation_descent_m", 0.0))))
+	left_col.add_child(_stat_row(Loc.t("nav_max_grade"), "%.1f°" % float(_stats.get("max_grade_deg", 0.0)), UIKit.AMBER))
+	left_col.add_child(_stat_row(Loc.t("nav_avg_grade"), "%.1f°" % float(_stats.get("avg_grade_deg", 0.0))))
+	left_col.add_child(_stat_row(Loc.t("nav_steepest20"), "%.1f°" % float(_stats.get("steepest_20m_deg", 0.0))))
+	left_col.add_child(_stat_row(Loc.t("nav_checkpoints"), str(int(_stats.get("checkpoints", 0)))))
 	left_col.add_child(UIKit.divider())
-	left_col.add_child(_surface_row(Loc.t("briefing_rock"), float(_stats.get("rock_pct", 0.0)), UIKit.MUTED))
-	left_col.add_child(_surface_row(Loc.t("briefing_dirt"), float(_stats.get("dirt_pct", 0.0)), Color(0.62, 0.46, 0.28)))
-	left_col.add_child(_surface_row(Loc.t("briefing_mud"), float(_stats.get("mud_pct", 0.0)), UIKit.TEAL))
+	# The surface mix comes from the authored sections, so the bars always agree
+	# with what the terrain builder paints on the road.
+	var mix: Dictionary = _stats.get("surface_pct", {}) as Dictionary
+	var ids: Array = mix.keys()
+	ids.sort()
+	for sid: String in ids:
+		var profile: SurfaceProfile = Content.surfaces.get(sid, null) as SurfaceProfile
+		var label_text: String = sid if profile == null else profile.label(Loc.lang)
+		var tint: Color = profile.color_top if profile != null else UIKit.MUTED
+		left_col.add_child(_surface_row(label_text, float(mix[sid]), tint))
 	left_col.add_child(UIKit.spacer(4))
 	left_col.add_child(UIKit.label(Loc.t("briefing_recommend"), 17, UIKit.AMBER, "bold"))
 	var rec := UIKit.paragraph(_recommendation(), 16, UIKit.MUTED)
@@ -131,17 +140,22 @@ func _surface_row(label_text: String, pct: float, color: Color) -> Control:
 
 func _recommendation() -> String:
 	var grade: float = float(_stats.get("max_grade_deg", 0.0))
-	var wet: float = float(_stats.get("mud_pct", 0.0))
+	var mix: Dictionary = _stats.get("surface_pct", {}) as Dictionary
+	var wet: float = float(mix.get("mud", 0.0)) + float(mix.get("wet_mud", 0.0))
+	var snow: float = float(mix.get("snow", 0.0)) + float(mix.get("ice", 0.0))
+	var rock: float = float(mix.get("rock", 0.0)) + float(mix.get("scree", 0.0))
 	var parts: PackedStringArray = []
 	if grade >= 20.0:
 		parts.append(Loc.t("recommend_low_range"))
 	elif grade >= 12.0:
 		parts.append(Loc.t("recommend_short_gears"))
-	if wet >= 35.0:
+	if snow >= 30.0:
+		parts.append(Loc.t("recommend_snow_tires"))
+	elif wet >= 30.0:
 		parts.append(Loc.t("recommend_mud_tires"))
-	elif float(_stats.get("rock_pct", 0.0)) >= 40.0:
+	elif rock >= 40.0:
 		parts.append(Loc.t("recommend_rock_tires"))
-	if float(_stats.get("descents", 0)) >= 2:
+	if float(_stats.get("elevation_descent_m", 0.0)) >= 60.0:
 		parts.append(Loc.t("recommend_descent"))
 	if parts.is_empty():
 		parts.append(Loc.t("recommend_standard"))

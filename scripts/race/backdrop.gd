@@ -64,18 +64,19 @@ func _fallback_sky() -> Color:
 	match env_id:
 		"pine":
 			return Color(0.55, 0.60, 0.61)
-		"quarry":
+		"quarry", "alpine":
 			return Color(0.62, 0.72, 0.82)
 		"black_ridge":
 			return Color(0.24, 0.26, 0.28)
+		"zagros":
+			return Color(0.86, 0.74, 0.56)
+		"glacier":
+			return Color(0.72, 0.81, 0.88)
 		_:
 			return Color(0.86, 0.72, 0.55)
 
 func _tex(layer: String) -> Texture2D:
-	var path: String = "res://assets/environments/%s/%s.svg" % [env_id, layer]
-	if ResourceLoader.exists(path):
-		return load(path) as Texture2D
-	return null
+	return ArtLib.env(env_id, layer)
 
 func _process(_delta: float) -> void:
 	if camera == null:

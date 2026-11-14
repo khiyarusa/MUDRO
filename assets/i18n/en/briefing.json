@@ -1,0 +1,12 @@
+{
+	"briefing_recommend": "SUGGESTED SETUP",
+	"briefing_warning": "Whatever you change here is fitted to the car you are about to race.",
+	"briefing_start": "START THE RUN",
+	"recommend_low_range": "Use the low range (4L)",
+	"recommend_short_gears": "Shorter ratios suit this gradient",
+	"recommend_mud_tires": "Mud tyres for this surface",
+	"recommend_rock_tires": "Rock tyres and lower pressure",
+	"recommend_snow_tires": "Snow tyres and a soft throttle",
+	"recommend_descent": "Long descent: brakes and a low gear",
+	"recommend_standard": "The factory setup is enough for this route"
+}

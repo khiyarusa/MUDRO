@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+<defs>
+<radialGradient id="sh" gradientUnits="userSpaceOnUse" cx="256" cy="506" r="210"><stop offset="0" stop-color="#000000" stop-opacity="0.34"/><stop offset="0.55" stop-color="#000000" stop-opacity="0.18"/><stop offset="1" stop-color="#000000" stop-opacity="0"/></radialGradient>
+</defs>
+<ellipse cx="256" cy="503" rx="96" ry="8" fill="#1a1512" fill-opacity="0.225"/>
+<ellipse cx="256" cy="505" rx="65.3" ry="6" fill="#120e0b" fill-opacity="0.24"/>
+<path d="M248,508 L252,240 L262,240 L258,508 Z" fill="#2f3a45"/>
+<path d="M252,250 L261,249.4 L260,276 L251,276 Z" fill="#d9713a"/>
+<path d="M251.9,302 L261.1,301.4 L260.1,328 L250.9,328 Z" fill="#2f3a45"/>
+<path d="M251.8,354 L261.2,353.4 L260.2,380 L250.8,380 Z" fill="#d9713a"/>
+<path d="M251.7,406 L261.3,405.4 L260.3,432 L250.7,432 Z" fill="#2f3a45"/>
+<path d="M251.6,458 L261.4,457.4 L260.4,484 L250.6,484 Z" fill="#d9713a"/>
+<path d="M251,300 L261,299.4 L260,312 L250,312.6 Z" fill="#f4f9fc" fill-opacity="0.95"/>
+<path d="M253,508 L259,508 L258,468 L254,468 Z" fill="#e8eef2" fill-opacity="0.9"/>
+<ellipse cx="256" cy="497" rx="54" ry="11" fill="#e8eef2" fill-opacity="0.95"/>
+<ellipse cx="256" cy="494" rx="38" ry="8" fill="#ffffff" fill-opacity="0.7"/>
+<path d="M246,240 L264,240 L262,232 L248,232 Z" fill="#3b4650"/>
+</svg>
