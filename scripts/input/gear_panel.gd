@@ -16,6 +16,7 @@ signal range_requested(range_id: String)
 signal close_requested
 
 const PLATE_INSET: float = 0.07
+const CLOSE_SIZE: float = 34.0
 
 var profile: TransmissionProfile
 var current_gear: int = 0
@@ -98,10 +99,24 @@ func _to_norm(px: Vector2) -> Vector2:
 func hit_test(local: Vector2) -> bool:
 	return visible and _plate_rect().has_point(local)
 
+func _close_rect() -> Rect2:
+	var p: Rect2 = _plate_rect()
+	return Rect2(Vector2(p.end.x - CLOSE_SIZE - 6.0, p.position.y + 6.0), Vector2(CLOSE_SIZE, CLOSE_SIZE))
+
 func is_dragging() -> bool:
 	return _dragging
 
 func press_at(local: Vector2, finger: int) -> void:
+	# A second finger landing on the plate must not take the lever: lifting either of
+	# them would then drop the shift mid-gate (or commit a gear the player never
+	# finished selecting). The lever belongs to one finger at a time.
+	if _dragging and _finger >= 0 and _finger != finger:
+		return
+	if _close_rect().has_point(local):
+		_dragging = false
+		_finger = -1
+		close_requested.emit()
+		return
 	_finger = finger
 	_dragging = true
 	_grabbed = false
@@ -129,7 +144,9 @@ func drag_at(local: Vector2) -> void:
 			pass
 	queue_redraw()
 
-func release_finger() -> void:
+func release_finger(finger: int = -1) -> void:
+	if finger >= 0 and _finger >= 0 and finger != _finger:
+		return
 	if profile != null and profile.kind == TransmissionProfile.Kind.MANUAL_H and _dragging:
 		var g: Dictionary = profile.gate_project(_knob)
 		var gear: int = int(g.get("gear", 0))
@@ -273,6 +290,16 @@ func _draw() -> void:
 		draw_texture_rect(_plate_tex, plate, false, Color(1, 1, 1, 0.10))
 	draw_rect(plate, Color(0.95, 0.93, 0.88, 0.14), false, 2.0)
 	draw_rect(plate.grow(-4.0), Color(0.95, 0.93, 0.88, 0.05), false, 1.0)
+
+	# Close affordance: the panel is a tool, not a modal state, so it can always be
+	# dismissed without hunting for the lever button underneath it.
+	var close: Rect2 = _close_rect()
+	draw_rect(close, Color(0.96, 0.93, 0.86, 0.06), true)
+	draw_rect(close, Color(0.96, 0.93, 0.86, 0.16), false, 1.0)
+	var c: Vector2 = close.position + close.size * 0.5
+	var arm: float = close.size.x * 0.22
+	draw_line(c + Vector2(-arm, -arm), c + Vector2(arm, arm), Color(0.88, 0.86, 0.80, 0.75), 1.6, true)
+	draw_line(c + Vector2(arm, -arm), c + Vector2(-arm, arm), Color(0.88, 0.86, 0.80, 0.75), 1.6, true)
 
 	match profile.kind:
 		TransmissionProfile.Kind.MANUAL_H:

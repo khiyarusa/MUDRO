@@ -286,6 +286,15 @@ static func _from_row(row: Dictionary) -> VehicleDef:
 	v.handbrake_torque = float(row["handbrake"])
 	v.clutch_capacity = float(row["clutch"])
 	v.clutch_stiffness = float(row["clutch_k"])
+	# The clutch cover's behaviour is derived from the car's own kerb mass rather
+	# than typed as a per-car wish: a 2.5 t diesel cover clamps more slowly, absorbs
+	# more slip energy and fades later than a 1.1 t petrol one. The mass is documented
+	# factory data; the three curves are the model.
+	var heft: float = clampf(v.mass_kg / 2400.0, 0.35, 1.25)
+	var heft_t: float = clampf((heft - 0.35) / 0.90, 0.0, 1.0)
+	v.clutch_clamp_rate = lerpf(7.4, 4.2, heft_t)
+	v.clutch_heat_capacity = lerpf(34.0, 46.0, heft_t)
+	v.clutch_fade_limit = lerpf(0.22, 0.36, heft_t)
 	v.durability = float(row["durability"])
 	v.impact_tolerance = float(row["impact"])
 	v.max_tyre_radius_m = float(row["max_tyre_r"])

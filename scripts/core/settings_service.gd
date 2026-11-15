@@ -6,7 +6,10 @@ signal changed
 signal language_changed(code: String)
 
 const PATH: String = "user://settings.json"
-const VERSION: int = 3
+const VERSION: int = 4
+## The 3.1 driver layout: clutch alone on the left, throttle + brake on the right.
+const DEFAULT_PRESET: String = "drive"
+const PRESETS: Array[String] = ["drive", "buttons", "slider", "pedals"]
 
 var master: float = 1.0
 var engine: float = 0.95
@@ -18,7 +21,7 @@ var haptics: bool = true
 var shake: float = 1.0
 var control_opacity: float = 0.82
 var control_scale: float = 1.0
-var control_preset: String = "buttons"
+var control_preset: String = DEFAULT_PRESET
 var control_left_handed: bool = false
 var control_margin: float = 0.0
 var slider_sensitivity: float = 1.0
@@ -31,7 +34,9 @@ var show_recover: bool = true
 ## Per-widget centre override from the layout editor, id -> [x, y] in 0..1.
 var control_positions: Dictionary = {}
 var transmission: String = "manual"
-var clutch: String = "assist"
+## 3.1 ships the realistic clutch by default: a shift must be earned with the
+## pedal and a bad launch can stall the engine. Assist remains one tap away.
+var clutch: String = "manual"
 var show_debug: bool = false
 ## MUDRO Radio is opt-in once the player mutes it, and its own level is separate
 ## from the music bus so a garage jingle never buries the engine.
@@ -49,22 +54,24 @@ func _defaults() -> Dictionary:
 		"master": 1.0, "engine": 0.95, "sfx": 0.9, "music": 0.55,
 		"language": "fa", "quality": 2, "haptics": true, "shake": 1.0,
 		"control_opacity": 0.82, "control_scale": 1.0,
-		"control_preset": "buttons", "control_left_handed": false,
+		"control_preset": DEFAULT_PRESET, "control_left_handed": false,
 		"control_margin": 0.0, "slider_sensitivity": 1.0, "slider_release": 4.5,
 		"touch_hit_margin": 0.18,
 		"show_clutch": true, "show_handbrake": true, "show_winch": true, "show_recover": true,
 		"control_positions": {},
-		"transmission": "manual", "clutch": "assist", "show_debug": false,
+		"transmission": "manual", "clutch": "manual", "show_debug": false,
 		"radio_enabled": true, "radio_volume": 0.55,
 	}
 
 func load_settings() -> void:
 	var d: Dictionary = _defaults()
+	var stored_version: int = 0
 	if FileAccess.file_exists(PATH):
 		var parsed: Variant = JSON.parse_string(FileAccess.get_file_as_string(PATH))
 		if parsed is Dictionary:
 			for k: String in (parsed as Dictionary).keys():
 				d[k] = (parsed as Dictionary)[k]
+			stored_version = int((parsed as Dictionary).get("version", 1))
 	master = clampf(float(d.get("master", 1.0)), 0.0, 1.0)
 	engine = clampf(float(d.get("engine", 0.95)), 0.0, 1.0)
 	sfx = clampf(float(d.get("sfx", 0.9)), 0.0, 1.0)
@@ -77,9 +84,16 @@ func load_settings() -> void:
 	shake = clampf(float(d.get("shake", 1.0)), 0.0, 1.5)
 	control_opacity = clampf(float(d.get("control_opacity", 0.82)), 0.25, 1.0)
 	control_scale = clampf(float(d.get("control_scale", 1.0)), 0.8, 1.35)
-	control_preset = String(d.get("control_preset", "buttons"))
-	if not ["buttons", "slider", "pedals"].has(control_preset):
-		control_preset = "buttons"
+	control_preset = String(d.get("control_preset", DEFAULT_PRESET))
+	if not PRESETS.has(control_preset):
+		control_preset = DEFAULT_PRESET
+	# 3.0 shipped with the throttle and the brake on opposite sides and no left-hand
+	# clutch column. A profile that never customised its layout is moved to the 3.1
+	# driver layout once; a profile with hand-placed controls keeps them untouched.
+	var stored_positions: Variant = d.get("control_positions", {})
+	var has_custom_layout: bool = stored_positions is Dictionary and not (stored_positions as Dictionary).is_empty()
+	if stored_version < 4 and not has_custom_layout:
+		control_preset = DEFAULT_PRESET
 	control_left_handed = bool(d.get("control_left_handed", false))
 	control_margin = clampf(float(d.get("control_margin", 0.0)), 0.0, 48.0)
 	slider_sensitivity = clampf(float(d.get("slider_sensitivity", 1.0)), 0.55, 1.8)
@@ -181,7 +195,7 @@ func set_value(key: String, value: Variant) -> void:
 		"control_opacity": control_opacity = clampf(float(value), 0.25, 1.0)
 		"control_scale": control_scale = clampf(float(value), 0.8, 1.35)
 		"control_preset":
-			control_preset = String(value)
+			control_preset = String(value) if PRESETS.has(String(value)) else DEFAULT_PRESET
 			control_positions = {}
 		"control_left_handed": control_left_handed = bool(value)
 		"control_margin": control_margin = clampf(float(value), 0.0, 48.0)
@@ -219,7 +233,7 @@ func reset_defaults() -> void:
 	shake = float(d["shake"])
 	control_opacity = float(d["control_opacity"])
 	control_scale = float(d["control_scale"])
-	control_preset = String(d.get("control_preset", "buttons"))
+	control_preset = String(d.get("control_preset", DEFAULT_PRESET))
 	control_left_handed = bool(d.get("control_left_handed", false))
 	control_margin = float(d.get("control_margin", 0.0))
 	slider_sensitivity = float(d.get("slider_sensitivity", 1.0))

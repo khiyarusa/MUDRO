@@ -85,6 +85,14 @@ static func build(base: VehicleDef, config: Dictionary) -> VehicleDef:
 	var v: VehicleDef = base.duplicate_def()
 	var parts: Dictionary = resolve_parts(base, cfg)
 	v.parts = parts
+	# Publish every fitted part's condition so downstream systems (clutch capacity,
+	# tyre grip, radiator duty) read the wear the player sees in the workshop.
+	var conditions_out: Dictionary = {}
+	for slot_key: Variant in parts.keys():
+		var fitted: PartDef = parts[slot_key] as PartDef
+		if fitted != null:
+			conditions_out[fitted.id] = condition_of(cfg, fitted.id)
+	v.part_conditions = conditions_out
 	var build: EngineBuild = EngineBuild.derive(_engine_spec(base), _engine_part_map(parts))
 	build.heat_kw_full = build.coolant_heat_kw(build.peak_power_kw)
 	v.engine_build = build
@@ -99,14 +107,29 @@ static func build(base: VehicleDef, config: Dictionary) -> VehicleDef:
 	v.mass_kg = maxf(base.mass_kg + extra_mass, base.mass_kg * 0.6)
 
 	# --- transmission -------------------------------------------------------
+	# Two ways to choose a gearbox and both must work: the workshop fits a part, and
+	# the route briefing picks one of the car's documented transmissions. A non-stock
+	# part is the more specific, more recent choice, so it wins; otherwise the
+	# catalogue pick is honoured (it used to be written by the UI and never read, so
+	# every factory automatic in the catalogue was dead data).
 	var gbox: PartDef = parts.get(PartDef.Slot.GEARBOX, null) as PartDef
-	if gbox != null:
-		var profile: TransmissionProfile = _profile_from_part(base, gbox)
+	var wanted_trans: String = String(cfg.get("transmission", ""))
+	var catalogue: TransmissionProfile = null
+	if not wanted_trans.is_empty():
+		catalogue = base.transmission_by_id(wanted_trans)
+	var profile: TransmissionProfile = null
+	if gbox != null and gbox.tier > 0:
+		profile = _profile_from_part(base, gbox)
+	elif catalogue != null:
+		profile = catalogue.duplicate_profile()
+	elif gbox != null:
+		profile = _profile_from_part(base, gbox)
+	if profile != null:
 		v.transmissions = [profile]
 		v.stock_transmission = profile.id
 		v.fitted_transmission = profile.id
 		var g := GearboxConfig.new()
-		g.display_name = gbox.name_en
+		g.display_name = profile.name_en
 		g.ratios = profile.ratios
 		g.reverse_ratio = profile.reverse_ratio
 		g.final_drive = profile.final_drive
@@ -178,6 +201,13 @@ static func build(base: VehicleDef, config: Dictionary) -> VehicleDef:
 		v.tire_front = _tire_from_part(tyre, base.tire_front)
 		v.tire_rear = _tire_from_part(tyre, base.tire_rear)
 		v.fitted_tires = tyre.id
+		# A worn tyre is a real grip loss, not a label: condition is the same number
+		# the repair shop shows, applied here to the contact model.
+		var tyre_wear: float = float(PartDef.CONDITION_MULT.get(condition_of(cfg, tyre.id), 1.0))
+		v.tire_front.mu_scale = base.tire_front.mu_scale * maxf(tyre_wear, 0.15)
+		v.tire_rear.mu_scale = base.tire_rear.mu_scale * maxf(tyre_wear, 0.15)
+		v.tire_front.rolling_resistance = lerpf(base.tire_front.rolling_resistance, 0.075, 1.0 - tyre_wear)
+		v.tire_rear.rolling_resistance = lerpf(base.tire_rear.rolling_resistance, 0.075, 1.0 - tyre_wear)
 	var rim: PartDef = parts.get(PartDef.Slot.RIMS, null) as PartDef
 	if rim != null:
 		var rim_mass: float = rim.num("mass_add", 0.0)
@@ -293,6 +323,14 @@ static func _engine_config(base: VehicleDef, build: EngineBuild, parts: Dictiona
 		var turbo: PartDef = parts.get(PartDef.Slot.TURBO, null) as PartDef
 		e.turbo_rpm = build.peak_torque_rpm * 0.62
 		e.turbo_width = 1900.0 if turbo == null else clampf(build.peak_torque_rpm * 1.1, 900.0, 2600.0)
+		# `build.torque_at()` already contains the turbo's steady-state boost. If the
+		# engine model then multiplied it by (1 + turbo_gain) the car made 480 Nm
+		# while the dyno reported 420. Divide the curve back to its naturally
+		# aspirated shape here, so full boost reproduces the authored curve exactly
+		# and the spool is a real deficit instead of a second helping of torque.
+		for i: int in range(e.curve_torque.size()):
+			var band: float = clampf(1.0 - absf(e.curve_rpm[i] - e.turbo_rpm) / maxf(e.turbo_width, 1.0), 0.0, 1.0)
+			e.curve_torque[i] = e.curve_torque[i] / (1.0 + e.turbo_gain * band)
 	return e
 
 static func _profile_from_part(base: VehicleDef, part: PartDef) -> TransmissionProfile:
@@ -309,8 +347,27 @@ static func _profile_from_part(base: VehicleDef, part: PartDef) -> TransmissionP
 	t.shift_time = part.num("shift_time", 0.3)
 	t.max_torque_nm = part.num("max_torque_nm", 500.0)
 	t.kind = int(part.num("kind", TransmissionProfile.Kind.MANUAL_H))
-	t.requires_clutch = t.kind != TransmissionProfile.Kind.MANUAL_SEQ
+	# Only an H-pattern box needs the pedal. A sequential dog box shifts on the
+	# throttle, and an automatic has a converter: arming a clutch interlock (and a
+	# stall the driver has no control to prevent) on either was the single worst
+	# data bug in the 3.1 build — a converted car demanded a pedal it cannot show.
+	t.requires_clutch = t.kind == TransmissionProfile.Kind.MANUAL_H
 	t.ranges = PackedStringArray(["P", "R", "N", "D", "L"]) if t.kind == TransmissionProfile.Kind.AUTOMATIC else PackedStringArray()
+	if t.kind == TransmissionProfile.Kind.AUTOMATIC:
+		# Where the catalogue documents a factory automatic, the conversion carries
+		# its real ratios, final drive and shift time instead of a generic set.
+		for candidate: TransmissionProfile in base.transmission_options():
+			if candidate.kind != TransmissionProfile.Kind.AUTOMATIC:
+				continue
+			if candidate.ratios.size() != t.ratios.size():
+				continue
+			t.ratios = candidate.ratios
+			t.reverse_ratio = candidate.reverse_ratio
+			t.final_drive = candidate.final_drive
+			t.efficiency = candidate.efficiency
+			t.shift_time = candidate.shift_time
+			t.max_torque_nm = maxf(t.max_torque_nm, candidate.max_torque_nm)
+			break
 	if t.kind == TransmissionProfile.Kind.AUTOMATIC:
 		t.clutch_type = "torque_converter"
 		t.converter_stall_mult = 1.9

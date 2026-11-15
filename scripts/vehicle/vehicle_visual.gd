@@ -9,9 +9,14 @@ var body_sprite: Sprite2D
 var wheel_sprites: Array[Sprite2D] = []
 var body_fallback: Polygon2D
 var brake_glow: Sprite2D
+var shadow_sprite: Sprite2D
 var _shocks: Array[Line2D] = []
 var _springs: Array[Line2D] = []
 var _dirt: float = 0.0
+## Distance from the artwork's centre line down to its axle line, in local px. The
+## body sprite is shifted by this every frame so the painted arches sit on the real
+## hubs even as the springs compress.
+var _art_axle_offset: float = 0.0
 var _base_modulate: Color = Color.WHITE
 
 func setup(v: VehicleBody) -> void:
@@ -20,6 +25,7 @@ func setup(v: VehicleBody) -> void:
 
 	var shadow := _make_shadow()
 	add_child(shadow)
+	shadow_sprite = shadow
 
 	for i: int in range(2):
 		var wheel := Sprite2D.new()
@@ -50,6 +56,7 @@ func setup(v: VehicleBody) -> void:
 		# The artwork's axle line (y=400 in a 720 px canvas) must sit exactly on the
 		# simulated axle height, so wheels and body arches line up.
 		var art_axle_from_center: float = (400.0 - body_tex.get_height() * 0.5) * art_scale
+		_art_axle_offset = art_axle_from_center
 		body_sprite.position = Vector2(0.0, vehicle.definition.com_height_m * Units.PPM - art_axle_from_center)
 	else:
 		body_fallback = Polygon2D.new()
@@ -85,19 +92,34 @@ func setup(v: VehicleBody) -> void:
 		spring.name = "Spring%d" % i
 		spring.width = 2.5
 		spring.default_color = Color(0.72, 0.52, 0.22, 0.9)
-		spring.z_index = 1
+		# Behind the paintwork: a coil drawn over the door reads as a sticker, not as
+		# suspension you can see moving through the arch.
+		spring.z_index = -2
 		add_child(spring)
 		_springs.append(spring)
 
 func _process(delta: float) -> void:
 	if vehicle == null or vehicle.axles.size() < 2:
 		return
+	var sag_px: float = 0.0
+	var ground_px: float = 0.0
 	for i: int in range(wheel_sprites.size()):
 		var axle: WheelAxis = vehicle.axles[i]
 		var wheel: Sprite2D = wheel_sprites[i]
 		wheel.position = wheel.position.lerp(axle.hub_local, clampf(delta * 26.0, 0.0, 1.0))
 		wheel.rotation = axle.spin_angle
+		sag_px += axle.compression * Units.PPM
+		ground_px += axle.hub_local.y + vehicle.definition.tire_for(i).radius_m * Units.PPM
 		_update_suspension_art(i, axle)
+	var n: float = maxf(float(wheel_sprites.size()), 1.0)
+	sag_px /= n
+	ground_px /= n
+	# The arches follow the hubs, so the body drops by the real static sag instead of
+	# floating above its own wheels.
+	if body_sprite != null and body_sprite.visible:
+		body_sprite.position.y = (vehicle.definition.com_height_m * Units.PPM - sag_px) - _art_axle_offset
+	if shadow_sprite != null:
+		shadow_sprite.position.y = maxf(ground_px, vehicle.definition.com_height_m * Units.PPM * 0.5)
 	if brake_glow != null:
 		var braking: bool = vehicle.brake_input > 0.15 or vehicle.handbrake_input > 0.1
 		brake_glow.visible = braking

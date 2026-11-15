@@ -66,6 +66,12 @@ enum Drivetrain { FWD, RWD, AWD }
 @export var clutch_stiffness: float = 2.6
 ## Pedal travel at which the plates are half engaged, from the fitted clutch part.
 @export var clutch_bite_point: float = 0.62
+## How fast a released pedal clamps the plates (engagement per second).
+@export var clutch_clamp_rate: float = 5.5
+## Slip energy the cover absorbs per unit of fade (kW·s).
+@export var clutch_heat_capacity: float = 45.0
+## Fraction of capacity lost at full heat.
+@export var clutch_fade_limit: float = 0.30
 
 @export_group("Engine data for the parts system")
 @export var engine_family: String = "k15b"

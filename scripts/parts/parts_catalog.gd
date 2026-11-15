@@ -265,16 +265,27 @@ static func driveline_parts(v: VehicleDef) -> Array[PartDef]:
 	# under-rated for its own engine.
 	var engine_torque: float = maxf(v.doc_torque_nm, v.engine.peak_torque())
 	var torque_rating: float = maxf(engine_torque * 1.2, 300.0)
+	# The bite point is a property of the car, not a constant: a heavy torquey
+	# diesel takes up drive lower in the pedal travel and over a longer window than
+	# a light petrol, and every fitment inherits that offset. Without this every
+	# stock car in the game bit at exactly 0.62 and the pedal felt identical.
+	var bite_base: float = clampf(0.74 - engine_torque / 2400.0, 0.52, 0.70)
 
 	out.append(_p("%s_clutch_s" % f, S.CLUTCH, "کلاچ استاندارد", "Stock clutch",
 		"کلاچ کارخانه با ظرفیت متناسب.", "Factory clutch at its rated capacity.",
-		0, 0.0, {"capacity_nm": torque_rating, "bite_point": 0.62, "type": "organic"}, v, 0))
+		0, 0.0, {
+			"capacity_nm": torque_rating, "bite_point": bite_base,
+			"engagement_window": 0.38, "type": "organic"}, v, 0))
 	out.append(_p("%s_clutch_hd" % f, S.CLUTCH, "کلاچ سنگین", "Heavy-duty clutch",
 		"ظرفیت بیشتر برای گشتاور بالاتر.", "More capacity for higher torque.",
-		b * 6, 1.5, {"capacity_nm": torque_rating * 1.45, "bite_point": 0.56, "type": "paddle"}, v, 1))
+		b * 6, 1.5, {
+			"capacity_nm": torque_rating * 1.45, "bite_point": bite_base - 0.06,
+			"engagement_window": 0.28, "type": "paddle"}, v, 1))
 	out.append(_p("%s_clutch_twin" % f, S.CLUTCH, "کلاچ دوقلو", "Twin-plate clutch",
 		"ظرفیت مسابقه و تعویض سریع، درگیری تند.", "Race capacity and fast shifts, with a sharp bite.",
-		b * 14, 2.5, {"capacity_nm": torque_rating * 2.1, "bite_point": 0.48, "type": "twin"}, v, 2))
+		b * 14, 2.5, {
+			"capacity_nm": torque_rating * 2.1, "bite_point": bite_base - 0.14,
+			"engagement_window": 0.22, "type": "twin"}, v, 2))
 
 	out.append(_p("%s_gbox_s" % f, S.GEARBOX, "گیربکس استاندارد", "Stock gearbox",
 		"نسبت‌های کارخانه.", "Factory ratios.", 0, 0.0,
@@ -290,6 +301,10 @@ static func driveline_parts(v: VehicleDef) -> Array[PartDef]:
 			"shift_time": shift * 0.82, "max_torque_nm": torque_rating * 1.35, "kind": kind,
 			"reverse_ratio": stock.reverse_ratio if stock != null else 3.4,
 			"efficiency": (stock.efficiency if stock != null else 0.9) + 0.01}, v, 1))
+	out.append(_p("%s_gbox_auto" % f, S.GEARBOX, "گیربکس اتوماتیک", "Automatic gearbox",
+		"مبدل گشتاور و تعویض خودکار، بدون پدال کلاچ.",
+		"Torque converter and automatic shifting, with no clutch pedal.",
+		b * 16, 16.0, _auto_params(v, stock, torque_rating), v, 2))
 	out.append(_p("%s_gbox_race" % f, S.GEARBOX, "گیربکس مسابقه", "Race gearbox",
 		"ترتیبی، تعویض سریع، تحمل گشتاور بالا.", "Sequential, fast shifts, high torque rating.",
 		b * 20, 1.0, {"ratios": _scaled(stock.ratios if stock != null else PackedFloat32Array([3.5, 2.1, 1.4, 1.0]), 1.2),
@@ -536,3 +551,66 @@ static func _scaled(values: PackedFloat32Array, mult: float) -> Array:
 	for v: float in values:
 		out.append(v * mult)
 	return out
+
+# ------------------------------------------------- automatic conversions ---
+
+## Ratios for the automatic conversion of a manual car.
+##
+## Where the car documents a factory automatic (the Hilux and the Land Cruiser
+## both do), the conversion carries that gearbox's real ratios. Otherwise a torque
+## converter multiplies torque at stall, so the automatic does not need the donor's
+## deep first gear and four speeds are enough where the manual had five: an engine
+## with torque to spare can afford a taller first, a small petrol keeps more of the
+## depth it had. The top gear is left where the factory put it, so cruising rpm and
+## top speed do not move.
+static func _auto_params(v: VehicleDef, stock: TransmissionProfile, torque_rating: float) -> Dictionary:
+	var factory: TransmissionProfile = _factory_automatic(v)
+	if factory != null:
+		return {
+			"ratios": _arr(factory.ratios),
+			"final_drive": factory.final_drive,
+			"reverse_ratio": factory.reverse_ratio,
+			"shift_time": factory.shift_time,
+			"max_torque_nm": maxf(torque_rating * 1.25, factory.max_torque_nm),
+			"kind": TransmissionProfile.Kind.AUTOMATIC,
+			"efficiency": factory.efficiency,
+		}
+	return {
+		"ratios": _arr(_auto_ratios(v, stock)),
+		"final_drive": _auto_final(stock),
+		"reverse_ratio": stock.reverse_ratio if stock != null else 3.4,
+		"shift_time": 0.34,
+		"max_torque_nm": torque_rating * 1.25,
+		"kind": TransmissionProfile.Kind.AUTOMATIC,
+		"efficiency": 0.86,
+	}
+
+static func _factory_automatic(v: VehicleDef) -> TransmissionProfile:
+	for candidate: TransmissionProfile in v.transmission_options():
+		if candidate.kind == TransmissionProfile.Kind.AUTOMATIC:
+			return candidate
+	return null
+
+## Synthesised ratios for a car with no documented automatic: four speeds, a
+## converter-friendly first and the donor's top gear kept as it was.
+static func _auto_ratios(v: VehicleDef, stock: TransmissionProfile) -> PackedFloat32Array:
+	var base: PackedFloat32Array = stock.ratios if stock != null \
+		else PackedFloat32Array([3.5, 2.1, 1.4, 1.0])
+	if base.size() < 3:
+		return base
+	var top: float = maxf(base[base.size() - 1], 1.0)
+	var grunt: float = clampf(v.doc_torque_nm / 420.0, 0.4, 1.0)
+	var first: float = maxf(base[0] * lerpf(0.94, 0.86, grunt), top * 1.08)
+	var speeds: int = mini(4, base.size())
+	var step: float = pow(first / top, 1.0 / float(speeds - 1))
+	var out: PackedFloat32Array = PackedFloat32Array()
+	for i: int in range(speeds):
+		out.append(top * pow(step, float(speeds - 1 - i)))
+	return out
+
+## The converter covers the launch, so the final drive can be a shade taller than
+## the donor's: the same road speed costs fewer rpm and the box is not fighting a
+## ratio it no longer needs.
+static func _auto_final(stock: TransmissionProfile) -> float:
+	var base: float = stock.final_drive if stock != null else 4.1
+	return snappedf(base * 0.97, 0.01)

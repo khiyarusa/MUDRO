@@ -18,7 +18,7 @@ signal panel_opened
 signal panel_closed
 signal layout_changed
 
-const PRESETS: Array[String] = ["buttons", "slider", "pedals"]
+const PRESETS: Array[String] = SettingsService.PRESETS
 
 var profile: TransmissionProfile
 var vehicle: VehicleBody = null
@@ -35,6 +35,9 @@ var _built_preset: String = ""
 var _built_side: bool = false
 var _built_scale: float = -1.0
 var _built_manual: bool = true
+var _built_show_clutch: bool = true
+var _built_show_handbrake: bool = true
+var _built_utility: String = ""
 var _use_mouse: bool = true
 var _edit_target: TouchWidget = null
 var _edit_grab: Vector2 = Vector2.ZERO
@@ -61,10 +64,31 @@ func setup(transmission: TransmissionProfile, v: VehicleBody = null) -> void:
 func _on_viewport_resized() -> void:
 	layout()
 
+func _process(_delta: float) -> void:
+	# The lever gates every shift on the pedal, so its copy of the pedal is refreshed
+	# here rather than waiting for the race scene to push one.
+	if panel != null:
+		panel.clutch_pedal = clutch_pedal()
+	# The starter is a repair tool, not a driving control: it only appears when the
+	# engine is actually dead, instead of floating over the road for the whole stage.
+	var start_widget: TouchWidget = widgets.get("start", null) as TouchWidget
+	if start_widget != null:
+		var stalled: bool = vehicle != null and vehicle.engine != null and not vehicle.engine.running
+		start_widget.visible = stalled
+
 func _on_settings_changed() -> void:
 	var preset: String = SettingsService.control_preset
 	var manual: bool = _needs_clutch()
-	if preset != _built_preset or SettingsService.control_left_handed != _built_side or manual != _built_manual:
+	var clutch_hint: bool = SettingsService.show_clutch
+	var handbrake_hint: bool = SettingsService.show_handbrake
+	# Every toggle that adds or removes a control must rebuild: layout() only moves
+	# the widgets that already exist, so a recover or winch toggle used to do nothing
+	# until something else happened to rebuild the layer.
+	var utility_hint: String = "%s|%s" % [str(SettingsService.show_recover), str(SettingsService.show_winch)]
+	if preset != _built_preset or SettingsService.control_left_handed != _built_side \
+			or manual != _built_manual \
+			or clutch_hint != _built_show_clutch or handbrake_hint != _built_show_handbrake \
+			or utility_hint != _built_utility:
 		rebuild()
 	else:
 		layout()
@@ -92,6 +116,9 @@ func rebuild() -> void:
 	_built_side = SettingsService.control_left_handed
 	_built_scale = SettingsService.control_scale
 	_built_manual = _needs_clutch()
+	_built_show_clutch = SettingsService.show_clutch
+	_built_show_handbrake = SettingsService.show_handbrake
+	_built_utility = "%s|%s" % [str(SettingsService.show_recover), str(SettingsService.show_winch)]
 
 	var specs: Array[Dictionary] = _specs()
 	for spec: Dictionary in specs:
@@ -115,6 +142,8 @@ func _add_widget(spec: Dictionary) -> void:
 		(widget as TouchSlider).setup_slider(String(spec["id"]), rect, String(spec.get("caption", "")))
 		(widget as TouchSlider).sensitivity = SettingsService.slider_sensitivity
 		(widget as TouchSlider).release_rate = SettingsService.slider_release
+		if String(spec["id"]) == "clutch":
+			_configure_clutch(widget as TouchSlider)
 	elif kind == "pedal":
 		(widget as TouchPedal).setup_pedal(String(spec["id"]), rect, String(spec.get("art", "pedal_throttle")), String(spec.get("caption", "")))
 		(widget as TouchPedal).release_rate = 9.0
@@ -137,7 +166,30 @@ func _build_panel() -> void:
 	add_child(panel)
 	panel.gear_requested.connect(func(g: int) -> void: gear_requested.emit(g))
 	panel.range_requested.connect(func(r: String) -> void: range_requested.emit(r))
+	panel.close_requested.connect(close_panel)
 	panel.set_state(0, "D", 0.0, 0.0, _assist())
+
+## The clutch rail is the one control that must never behave like a throttle. It
+## travels downward to the floor, starts every touch fully pressed, and paints the
+## engagement window of the clutch that is actually fitted to the car.
+func _configure_clutch(slider: TouchSlider) -> void:
+	slider.mode = TouchSlider.Mode.PEDAL
+	slider.value_at_bottom = true
+	slider.sensitivity = 1.0
+	# A clutch has to be let out like a clutch, not flicked: ~0.5 s of travel is
+	# already brisk, and the old 4.5/s rate dumped the plates in 0.17 s.
+	slider.release_rate = clampf(2.4 - SettingsService.slider_release * 0.14, 1.2, 2.6)
+	var bite: float = 0.62
+	var window: float = ClutchState.DEFAULT_WINDOW
+	if vehicle != null and vehicle.clutch != null:
+		bite = vehicle.clutch.bite_point
+		window = vehicle.clutch.engagement_window
+	# The band is the fitted clutch's own engagement window, not a constant: a twin
+	# plate bites over 0.22 of travel where an organic one takes 0.38, and the rail
+	# has to show the mechanism the car actually has.
+	var open_at: float = clampf(bite, 0.0, 1.0)
+	var bite_at: float = clampf(bite - clampf(window, 0.10, 0.60), 0.0, 1.0)
+	slider.bite_band = Vector2(bite_at, open_at)
 
 func _on_widget_value(value: float, widget: TouchWidget) -> void:
 	if value < 0.5:
@@ -182,6 +234,35 @@ func _specs() -> Array[Dictionary]:
 	var specs: Array[Dictionary] = []
 
 	match SettingsService.control_preset:
+		"drive":
+			# The 3.1 driver layout, and the default. LEFT is the clutch and nothing else;
+			# RIGHT is a large accelerator with a smaller, clearly separate brake beside
+			# it. Three thumbs can therefore work at once: clutch, gear lever, throttle.
+			#
+			# Every position is chosen against the HUD, not in isolation: the pause button
+			# and timer own the top-left corner, the objective card the top-right, and the
+			# speed cluster the bottom centre. Recovery and winch sit under the clutch
+			# rail, the lever and parking brake stack above the brake, and the starter
+			# sits over the middle of the screen where nothing else is drawn.
+			var clutch_h: float = minf(430.0 * u, h * 0.62)
+			if show_clutch:
+				specs.append(_spec("clutch", "slider", Vector2(94.0 * u + m, h * 0.47), Vector2(92.0 * u, clutch_h), "", Loc.t("ctl_clutch")))
+			specs.append(_spec("throttle", "slider", Vector2(w - 114.0 * u - m, h - 244.0 * u - m), Vector2(168.0, 432.0) * u, "", Loc.t("ctl_throttle")))
+			specs.append(_spec("brake", "slider", Vector2(w - 330.0 * u - m, h - 250.0 * u - m), Vector2(104.0, 300.0) * u, "", Loc.t("ctl_brake")))
+			if SettingsService.show_handbrake:
+				# Under the brake, at the bottom edge: the left side belongs to the clutch
+				# alone, and above the brake there is only the objective card.
+				specs.append(_spec("handbrake", "button", Vector2(w - 330.0 * u - m, h - 52.0 * u - m), Vector2(84, 84) * u, "pad_handbrake", Loc.t("ctl_handbrake")))
+			# The lever button sits above the brake column, clamped so it can never be
+			# pushed off the top edge of a short 19.5:9 screen.
+			specs.append(_spec("gear", "button", Vector2(w - 330.0 * u - m, maxf(h - 448.0 * u - m, 132.0 * u + m)), Vector2(112, 112) * u, "icon_gear", Loc.t("ctl_gear")))
+			if SettingsService.show_recover:
+				specs.append(_spec("recover", "button", Vector2(94.0 * u + m, h - 62.0 * u - m), Vector2(86, 86) * u, "pad_recover", ""))
+			if SettingsService.show_winch and _has_winch():
+				specs.append(_spec("winch", "button", Vector2(192.0 * u + m, h - 62.0 * u - m), Vector2(86, 86) * u, "icon_winch", ""))
+			# Clear of the clutch rail, left of the car and above the speed cluster: the
+			# one control a stalled driver has to find, without sitting on the bonnet.
+			specs.append(_spec("start", "button", Vector2(w * 0.5 - 250.0 * u - m, h - 250.0 * u - m), Vector2(92, 92) * u, "pad_start", ""))
 		"slider":
 			specs.append(_spec("throttle", "slider", Vector2(w - 96.0 * u - m, h - 255.0 * u - m), Vector2(120.0, 330.0) * u, "", Loc.t("ctl_throttle")))
 			specs.append(_spec("brake", "slider", Vector2(96.0 * u + m, h - 255.0 * u - m), Vector2(120.0, 330.0) * u, "", Loc.t("ctl_brake")))
@@ -193,16 +274,28 @@ func _specs() -> Array[Dictionary]:
 			specs.append(_spec("throttle", "pedal", Vector2(w - 152.0 * u - m, h - 246.0 * u - m), Vector2(200.0, 404.0) * u, "pedal_throttle", Loc.t("ctl_throttle")))
 			specs.append(_spec("brake", "pedal", Vector2(152.0 * u + m, h - 246.0 * u - m), Vector2(200.0, 404.0) * u, "pedal_brake", Loc.t("ctl_brake")))
 			if show_clutch:
-				specs.append(_spec("clutch", "pedal", Vector2(347.0 * u + m, h - 234.0 * u - m), Vector2(150.0, 360.0) * u, "pedal_clutch", Loc.t("ctl_clutch")))
+				# A clutch is analog in every preset. The pedal-shaped art is kept by the
+				# slider's PEDAL mode; as a press-depth pedal it was a 0/1 button with
+				# 9/s return, which is exactly how you dump a clutch.
+				specs.append(_spec("clutch", "slider", Vector2(347.0 * u + m, h - 234.0 * u - m), Vector2(150.0, 360.0) * u, "", Loc.t("ctl_clutch")))
 			specs.append(_spec("handbrake", "button", Vector2(w * 0.5, h - 74.0 * u - m), Vector2(92, 92) * u, "pad_handbrake", ""))
 			specs.append(_spec("gear", "button", Vector2(w - 128.0 * u - m, 196.0 * u + m), Vector2(118, 118) * u, "icon_gear", Loc.t("ctl_gear")))
 		_:
 			specs.append(_spec("throttle", "button", Vector2(w - 122.0 * u - m, h - 122.0 * u - m), Vector2(200, 200) * u, "pad_throttle", Loc.t("ctl_throttle")))
 			specs.append(_spec("brake", "button", Vector2(122.0 * u + m, h - 122.0 * u - m), Vector2(178, 178) * u, "pad_brake", Loc.t("ctl_brake")))
 			if show_clutch:
-				specs.append(_spec("clutch", "button", Vector2(108.0 * u + m, h - 340.0 * u - m), Vector2(148, 148) * u, "pad_clutch", Loc.t("ctl_clutch")))
+				# Even in the button preset the clutch is a rail: a Boolean clutch cannot be
+				# modulated, and the manual box refuses every shift without it.
+				specs.append(_spec("clutch", "slider", Vector2(96.0 * u + m, h - 330.0 * u - m), Vector2(84.0, 260.0) * u, "", Loc.t("ctl_clutch")))
 			specs.append(_spec("handbrake", "button", Vector2(300.0 * u + m, h - 136.0 * u - m), Vector2(104, 104) * u, "pad_handbrake", Loc.t("ctl_handbrake")))
 			specs.append(_spec("gear", "button", Vector2(w - 118.0 * u - m, h - 342.0 * u - m), Vector2(132, 132) * u, "icon_gear", Loc.t("ctl_gear")))
+
+	if SettingsService.control_preset == "drive":
+		# The driver layout declares its own utility buttons above; it must not also
+		# receive the generic ones, which would stack two recover icons and two starters.
+		if SettingsService.control_left_handed:
+			_mirror_all(specs, w)
+		return specs
 
 	if SettingsService.show_recover:
 		specs.append(_spec("recover", "button", Vector2(w - 74.0 * u - m, 168.0 * u + m), Vector2(92, 92) * u, "pad_recover", ""))
@@ -213,11 +306,14 @@ func _specs() -> Array[Dictionary]:
 	# Mirroring is applied once, here, so every preset and every override follow the
 	# same rule instead of each control guessing which corner it lives in.
 	if SettingsService.control_left_handed:
-		for spec: Dictionary in specs:
-			var r: Rect2 = spec["rect"]
-			r.position.x = w - r.position.x - r.size.x
-			spec["rect"] = r
+		_mirror_all(specs, w)
 	return specs
+
+func _mirror_all(specs: Array[Dictionary], w: float) -> void:
+	for spec: Dictionary in specs:
+		var r: Rect2 = spec["rect"]
+		r.position.x = w - r.position.x - r.size.x
+		spec["rect"] = r
 
 ## `center` is the centre of the control, not its top-left: the layout numbers are
 ## authored as "this control sits here on the screen" and converted once.
@@ -258,12 +354,16 @@ func layout() -> void:
 		_apply_override(widget, spec)
 		widget.modulate.a = SettingsService.control_opacity
 	if panel != null:
-		var pw: float = minf(view.x * 0.52, 720.0 * _u())
-		var ph: float = minf(view.y * 0.66, 512.0 * _u())
-		var px: float = view.x - pw - 20.0 * _u()
-		var py: float = maxf(view.y * 0.23, (view.y - ph) * 0.5)
-		if SettingsService.control_left_handed:
-			px = 20.0 * _u()
+		# Keep the gate's clutch reading live from the control layer itself. The panel
+		# must never depend on the race scene having pushed a frame first, or a player
+		# who stamps the clutch and grabs the lever in the same tick is refused.
+		panel.clutch_pedal = clutch_pedal()
+		var pw: float = minf(view.x * 0.39, 620.0 * _u())
+		var ph: float = minf(view.y * 0.62, 500.0 * _u())
+		# A transmission tunnel, not a right-hand drawer: centred between the clutch
+		# and the throttle so the throttle thumb is never covered by the lever.
+		var px: float = (view.x - pw) * 0.5
+		var py: float = (view.y - ph) * 0.5
 		panel.position = Vector2(px, py)
 		panel.size = Vector2(pw, ph)
 		panel.pivot_offset = Vector2(pw, ph) * 0.5
@@ -318,12 +418,22 @@ func _begin(finger: int, p: Vector2) -> bool:
 				return true
 		return false
 	if panel_open and panel != null and panel.hit_test(p - panel.position):
+		panel.clutch_pedal = clutch_pedal()
 		_fingers[finger] = panel
 		panel.press_at(p - panel.position, finger)
 		return true
+	if panel_open and panel != null:
+		# A tap outside the lever dismisses it and still reaches the control under the
+		# finger: reaching for the throttle must not cost a second tap.
+		close_panel()
 	var keys: Array = widgets.keys()
 	for i: int in range(keys.size() - 1, -1, -1):
 		var widget: TouchWidget = widgets[keys[i]] as TouchWidget
+		# A second finger landing on a control that another finger already owns must
+		# never take it over: lifting either finger would then drop the pedal while
+		# the other one is still holding it down.
+		if widget.finger_id >= 0 and widget.finger_id != finger:
+			continue
 		if widget.hit_test(p - widget.position):
 			_fingers[finger] = widget
 			widget.press_at(p - widget.position, finger)
@@ -366,9 +476,12 @@ func _end(finger: int) -> bool:
 	var target: Object = _fingers[finger]
 	_fingers.erase(finger)
 	if target is GearPanel:
-		(panel as GearPanel).release_finger()
+		(panel as GearPanel).release_finger(finger)
 	else:
-		(target as TouchWidget).release_finger()
+		var releasing: TouchWidget = target as TouchWidget
+		# Only the finger that owns the control may release it.
+		if releasing != null and (releasing.finger_id == finger or releasing.finger_id < 0):
+			releasing.release_finger()
 	return true
 
 func _clamp_into(pos: Vector2, dim: Vector2) -> Vector2:
@@ -416,6 +529,10 @@ func release_all() -> void:
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_APPLICATION_FOCUS_OUT or what == NOTIFICATION_WM_WINDOW_FOCUS_OUT:
 		release_all()
+	elif what == NOTIFICATION_APPLICATION_PAUSED:
+		# Android cancels every touch when the app is backgrounded: no finger is
+		# coming back, so nothing may stay held down while the game is away.
+		release_all()
 	elif what == NOTIFICATION_VISIBILITY_CHANGED and not is_visible_in_tree():
 		release_all()
 
@@ -438,10 +555,16 @@ func open_panel() -> void:
 	panel.scale = Vector2(0.94, 0.94)
 	if _panel_tween != null and _panel_tween.is_valid():
 		_panel_tween.kill()
+	# Slide in from the edge it is anchored to, so opening the transmission reads as
+	# a panel arriving rather than a menu appearing.
+	var target: Vector2 = panel.position
+	var dir: float = -1.0 if SettingsService.control_left_handed else 1.0
+	panel.position = target + Vector2(panel.size.x * 0.32 * dir, 0.0)
 	_panel_tween = create_tween()
 	_panel_tween.set_parallel(true)
 	_panel_tween.tween_property(panel, "modulate:a", 1.0, 0.16)
 	_panel_tween.tween_property(panel, "scale", Vector2.ONE, 0.20).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	_panel_tween.tween_property(panel, "position", target, 0.18).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 	AudioDirector.play("ui_confirm", -12.0)
 	panel_opened.emit()
 
@@ -450,6 +573,10 @@ func close_panel() -> void:
 		return
 	panel_open = false
 	panel.reset_finger()
+	if _fingers.values().has(panel):
+		for key: Variant in _fingers.keys():
+			if _fingers[key] == panel:
+				_fingers.erase(key)
 	if _panel_tween != null and _panel_tween.is_valid():
 		_panel_tween.kill()
 	_panel_tween = create_tween()

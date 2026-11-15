@@ -1,5 +1,12 @@
 # MUDRO 3.0 — Transmission
 
+> **Revised in 3.1.** Three claims in this document are no longer true and the 3.1 code is
+the authority: the bite point now moves the engagement window (it is per clutch part, not a
+constant 0.36), the assist mode can no longer stall (it is a real automatic clutch, not a
+shift bypass), and a sequential box no longer requires a clutch at all. Per-car cover data
+(clamp rate, heat capacity, fade limit) is documented in
+[`MUDRO_3_1_BASELINE_AUDIT.md`](MUDRO_3_1_BASELINE_AUDIT.md) §2.7.
+
 **What this is:** how the driveline is described as data, how the three gearbox architectures behave, what the clutch and transfer case do, why a shift can be refused, and the contract between the mobile gear selector and the physics. For maintainers and for anyone debugging "the car will not go into gear".
 **Scope:** `scripts/vehicle/transmission_profile.gd`, `gearbox_state.gd`, `clutch_state.gd`, the driveline half of `vehicle_body.gd`, and `scripts/input/gear_panel.gd`. Vehicle-specific ratios and transfer cases are tabulated per vehicle in `docs/VEHICLE_DATABASE.md`; this document explains the machinery.
 **Version:** 1.0 — 2026-11-14 · code basis `project.godot` 3.0.0.

@@ -23,6 +23,10 @@ var definition: VehicleDef
 var engine: EngineState
 var gearbox: GearboxState
 var clutch: ClutchState
+## Clutch torque capacity with the fitted part's condition already applied. Kept
+## apart from `definition.clutch_capacity` so a runtime capacity change cannot
+## silently throw the wear multiplier away.
+var clutch_capacity_base: float = 420.0
 var axles: Array[WheelAxis] = []
 var damage: DamageModel = DamageModel.new()
 
@@ -57,6 +61,10 @@ var wheels_on_ground: int = 0
 var last_impact_at: float = -10.0
 var engine_running: bool = true
 var _last_gear_seen: int = 0
+## Clutch plate temperature as a 0..1 fade. Slip puts heat in, airflow takes it out,
+## and a hot clutch holds less torque — so a long hill start can cost the driver the
+## very grip they are slipping the pedal to find.
+var clutch_heat: float = 0.0
 
 var _prev_velocity: Vector2 = Vector2.ZERO
 ## External force in engine units (px·kg/s²), e.g. a winch cable. Cleared by the
@@ -123,11 +131,34 @@ func setup(def: VehicleDef, surfaces: Dictionary = {}) -> void:
 	clutch = ClutchState.new()
 	clutch.capacity = def.clutch_capacity
 	clutch.stiffness = def.clutch_stiffness
-	clutch.bite_point = 0.62
+	clutch.bite_point = def.clutch_bite_point
 	var clutch_part: PartDef = def.parts.get(PartDef.Slot.CLUTCH, null) as PartDef
 	if clutch_part != null:
-		clutch.bite_point = clutch_part.num("bite_point", 0.62)
-	clutch.manual_mode = manual_clutch_enabled
+		clutch.bite_point = clutch_part.num("bite_point", clutch.bite_point)
+		clutch.capacity = clutch_part.num("capacity_nm", clutch.capacity)
+		clutch.engagement_window = clutch_part.num("engagement_window", ClutchState.DEFAULT_WINDOW)
+		# A worn clutch still works, it just cannot hold the same torque and it bites
+		# further down the pedal travel. Condition is read from the save, not faked.
+		var cond: int = int(def.part_conditions.get(clutch_part.id, PartDef.Condition.NEW))
+		var mult: float = float(PartDef.CONDITION_MULT.get(cond, 1.0))
+		# A broken clutch is not a 12 % clutch that still drives: it drags. The floor
+		# is deliberately tiny rather than zero so a player with no credits is not
+		# soft-locked out of earning the repair.
+		clutch.capacity *= maxf(mult, 0.05)
+		clutch.bite_point = clampf(clutch.bite_point + (1.0 - mult) * 0.10, 0.25, 0.85)
+	clutch_capacity_base = clutch.capacity
+	# The cover's own behaviour comes from the car: how fast it clamps, how much slip
+	# energy it can take and how hard it fades. Three 1.1 t petrols and three 2.5 t
+	# diesels do not share one clutch.
+	clutch.clamp_rate = def.clutch_clamp_rate
+	clutch.heat_capacity = def.clutch_heat_capacity
+	clutch.fade_limit = def.clutch_fade_limit
+	# A car whose gearbox needs a pedal is undrivable without one. If the player has
+	# hidden the clutch control, the box gets the automatic clutch rather than a car
+	# that can never leave neutral.
+	if manual_clutch_enabled and not SettingsService.show_clutch:
+		auto_clutch = true
+	clutch.manual_mode = manual_clutch_enabled and not auto_clutch
 	if gearbox.profile != null and gearbox.profile.requires_clutch and not auto_clutch:
 		manual_clutch_enabled = true
 		clutch.manual_mode = true
@@ -189,6 +220,7 @@ func _physics_process(delta: float) -> void:
 	if auto_transmission:
 		var load_frac: float = clampf(engine.output_torque() / maxf(engine.config.peak_torque(), 1.0), 0.0, 1.0)
 		var slip: float = absf(axles[1].slip_ratio) if axles.size() > 1 else 0.0
+		gearbox.vehicle_speed = forward_speed
 		gearbox.auto_update(delta, engine.rpm, throttle_input, forward_speed, load_frac, grade_deg(), slip)
 	else:
 		gearbox.update(delta)
@@ -216,7 +248,7 @@ func _integrate_forces(state: PhysicsDirectBodyState2D) -> void:
 		if thermal.critical:
 			heat_damage += (thermal.coolant_temp_c - ThermalState.DAMAGE_START_C) * 0.0025 * dt
 			damage.engine_health = maxf(0.0, damage.engine_health - heat_damage * 0.002 * dt)
-	clutch.manual_mode = manual_clutch_enabled or not auto_clutch
+	clutch.manual_mode = manual_clutch_enabled and not auto_clutch
 	var xf: Transform2D = state.transform
 	var forward: Vector2 = xf.x.normalized()
 	var down: Vector2 = xf.y.normalized()
@@ -380,9 +412,13 @@ func _point_velocity(state: PhysicsDirectBodyState2D, world_point: Vector2) -> V
 	return state.linear_velocity + Vector2(-state.angular_velocity * r.y, state.angular_velocity * r.x)
 
 func _surface_at(point: Vector2) -> SurfaceProfile:
-	var probe: Object = get_meta("surface_probe", null)
-	if probe != null and probe.has_method("surface_at_world"):
-		return probe.call("surface_at_world", point)
+	# `get_meta` with a null default still reports a missing key, and this runs twice
+	# per axle per physics tick: ask whether the probe exists instead of provoking an
+	# error 240 times a second on every car that has none.
+	if has_meta("surface_probe"):
+		var probe: Object = get_meta("surface_probe")
+		if probe != null and probe.has_method("surface_at_world"):
+			return probe.call("surface_at_world", point)
 	if _surface_db.has("default"):
 		return _surface_db["default"] as SurfaceProfile
 	return null
@@ -409,7 +445,7 @@ func _update_drivetrain(dt: float) -> void:
 	var driveline_rpm: float = wheel_rpm * ratio
 
 	var pedal_pressed: float = clampf(1.0 - clutch_input, 0.0, 1.0)
-	clutch.capacity = definition.clutch_capacity
+	clutch.capacity = clutch_capacity_base
 	clutch.update(dt, pedal_pressed, gearbox.is_shifting(), engine.rpm, driveline_rpm,
 			throttle_input, forward_speed)
 	if ratio == 0.0:
@@ -427,41 +463,56 @@ func _update_drivetrain(dt: float) -> void:
 		# ever reaches this function.
 		clutch.engagement = 0.0
 
-	# Clutch assist: slip the plates rather than let a beginner stall while pulling
-	# away or crawling. It never adds torque, it only disengages a little.
-	if auto_clutch and clutch.manual_mode and engine.running and absf(forward_speed) < 1.2:
-		if engine.rpm < engine.config.stall_rpm * 1.55 and clutch.engagement > 0.30:
-			clutch.engagement = move_toward(clutch.engagement, 0.20, dt * 5.0)
+	# Clutch assist: an automatic clutch slips the plates on its own so a beginner
+	# cannot stall while pulling away. The controller lives in ClutchState's auto
+	# path; all the body does is refuse to stall an engine nobody is modulating by
+	# hand (see the stall guard below).
 
 	# Friction clutch with a lock-up state. A stiff spring model oscillates at
 	# 120 Hz and lets the engine scream while the wheels crawl; instead the clutch
 	# either transmits crank torque (locked) or slips at its torque capacity.
+	#
+	# `connected` is the difference between a clutch and a brake. In neutral the
+	# gearbox input shaft just spins: there is no path from the crank to the wheels,
+	# so slipping against a zero driveline speed is not a load. Without this guard
+	# the plates dragged a healthy engine to a stop on the start line in N.
+	var connected: bool = ratio != 0.0
 	var slip: float = engine.rpm - driveline_rpm
-	var capacity_now: float = clutch.capacity * clutch.engagement
-	var can_lock: bool = ratio != 0.0 and clutch.engagement > 0.55 and not shift_interlock and engine.running
+	# A hot clutch cannot hold what a cold one can. The fade is capped at 30 % so a
+	# slipping clutch still bites: it gets worse, it does not simply stop working.
+	var capacity_now: float = clutch.capacity * clutch_fade() * clutch.engagement
+	clutch.capacity_scale = clutch_fade()
+	var crank: float = engine.output_torque() * damage.torque_multiplier() * _thermal_derate()
+	crank += engine.idle_torque()
+	crank -= engine.friction_torque()
+	if engine.throttle < 0.12:
+		crank -= engine.braking_torque()
+	# Lock-up means the plates are clamped together, so it can only happen when they
+	# are actually able to carry the crank torque. A worn or overheated clutch that
+	# cannot hold the engine must slip instead of transmitting it silently.
+	var can_lock: bool = ratio != 0.0 and clutch.engagement > 0.55 and not shift_interlock \
+		and engine.running and absf(crank) <= capacity_now
 	var clutch_torque: float = 0.0
 
-	if can_lock and absf(slip) < 140.0:
+	if connected and can_lock and absf(slip) < 140.0:
 		clutch.locked = true
 		engine.rpm = clampf(driveline_rpm, 0.0, engine.config.redline_rpm)
-		var crank: float = engine.output_torque() * damage.torque_multiplier() * _thermal_derate()
-		crank += engine.idle_torque()
-		crank -= engine.friction_torque()
-		if engine.throttle < 0.12:
-			crank -= engine.braking_torque()
 		clutch_torque = crank
 		clutch.transmitted_torque = clutch_torque
 	else:
 		clutch.locked = false
-		clutch_torque = clampf(slip * clutch.stiffness, -capacity_now, capacity_now)
+		clutch_torque = clutch.compute_torque() if connected else 0.0
 		clutch.transmitted_torque = clutch_torque
 		var net_engine: float = engine.output_torque() * damage.torque_multiplier() * _thermal_derate() - clutch_torque
 		net_engine += engine.idle_torque()
 		net_engine -= engine.friction_torque()
 		engine.integrate(dt, net_engine)
 
-	if engine.running and engine.rpm < engine.config.stall_rpm and clutch.engagement > 0.35:
-		if engine.config.stall_enabled and manual_clutch_enabled:
+	# A stall needs a driver holding the pedal. Realistic manual only: an assisted or
+	# automatic car has no pedal to get wrong, and stalling it would be a trap.
+	if connected and engine.running and engine.rpm < engine.config.stall_rpm \
+			and clutch.engagement > 0.35 and manual_clutch_enabled and not auto_clutch:
+		if engine.config.stall_enabled:
 			engine.stall()
 			engine_running = false
 			engine_stalled.emit()
@@ -478,10 +529,19 @@ func _update_drivetrain(dt: float) -> void:
 
 	var eff: float = gearbox.profile.efficiency if gearbox.profile != null else 0.9
 	var parked: bool = gearbox.profile != null and gearbox.profile.is_automatic() and gearbox.parking_lock()
+	_update_clutch_heat(dt, slip, clutch_torque)
 	var transfer_front: bool = gearbox.transfer_drives_front()
+	# The crank delivers its torque once. Two driven axles share it instead of each
+	# receiving a full copy: a 4WD in 4H used to get twice the engine torque and
+	# could climb anything, which is exactly the "magic" the driver can feel.
+	var share_total: float = 0.0
+	for j: int in range(axles.size()):
+		share_total += maxf(definition.axle_torque_share(j, transfer_front), 0.0)
+	if share_total <= 0.0:
+		share_total = 1.0
 	for i: int in range(axles.size()):
 		var axle: WheelAxis = axles[i]
-		var share: float = definition.axle_torque_share(i, transfer_front)
+		var share: float = definition.axle_torque_share(i, transfer_front) / share_total
 		var drive: float = 0.0
 		if share > 0.0 and ratio != 0.0:
 			drive = clutch_torque * converter * ratio * eff * share
@@ -530,6 +590,22 @@ func diff_grip_multiplier(axle: int) -> float:
 	if diff_mode == "lsd":
 		return 1.035
 	return 1.0
+
+## Heat in from the power the plates are slipping away, heat out to the air. At a
+## standing launch the clutch sees tens of kilowatts for a second; riding it for
+## several seconds on a climb is what actually kills a clutch. The capacity is the
+## car's own: a Patrol cover soaks up what a Jimny's would cook on.
+func _update_clutch_heat(dt: float, slip_rpm: float, torque: float) -> void:
+	var slip_rad: float = absf(slip_rpm) * TAU / 60.0
+	var kilowatts: float = slip_rad * absf(torque) / 1000.0
+	var cool: float = 0.45 + 0.02 * speed_kmh()
+	var capacity: float = maxf(clutch.heat_capacity if clutch != null else 45.0, 5.0)
+	clutch_heat = clampf(clutch_heat + (kilowatts / capacity - clutch_heat * cool) * dt, 0.0, 1.0)
+
+## 1.0 when the plates are cold, down to the car's own fade floor when cooked.
+func clutch_fade() -> float:
+	var limit: float = clampf(clutch.fade_limit if clutch != null else 0.30, 0.0, 0.6)
+	return 1.0 - limit * clutch_heat
 
 func axle_live(axle: int) -> bool:
 	if definition == null or gearbox == null:
@@ -594,6 +670,9 @@ func _update_telemetry(state: PhysicsDirectBodyState2D) -> void:
 		"clutch_pedal": 1.0 - clutch_input,
 		"clutch_engagement": clutch.engagement if clutch != null else 1.0,
 		"clutch_locked": clutch.locked if clutch != null else false,
+		"clutch_heat": clutch_heat,
+		"clutch_capacity": clutch_capacity_base * clutch_fade(),
+		"clutch_bite": clutch.bite_point if clutch != null else 0.62,
 		"shift_reject": gearbox.reject_reason if gearbox != null else "",
 		"transfer": gearbox.transfer_id() if gearbox != null else "",
 		"transfer_ratio": gearbox.transfer_ratio() if gearbox != null else 1.0,
@@ -629,8 +708,14 @@ func configure_driver(clutch_assist: bool) -> void:
 	# (b) slips the clutch automatically so a beginner cannot stall at the lights.
 	manual_clutch_enabled = requires_clutch
 	auto_transmission = gearbox != null and gearbox.profile != null and gearbox.profile.is_automatic()
+	if auto_transmission:
+		# An automatic has no pedal to press: its clutch is the converter's lock-up and
+		# the governor inside ClutchState has to run it. Leaving manual_mode true here
+		# was what made a converted car demand a clutch and creep off the line.
+		auto_clutch = true
+		manual_clutch_enabled = false
 	if clutch != null:
-		clutch.manual_mode = manual_clutch_enabled
+		clutch.manual_mode = manual_clutch_enabled and not auto_clutch
 
 func clutch_pedal() -> float:
 	return 1.0 - clutch_input
@@ -641,7 +726,11 @@ func clutch_pedal() -> float:
 func select_gear(target: int, force: bool = false) -> bool:
 	if gearbox == null:
 		return false
-	var clutch_ok: bool = auto_clutch or clutch.is_fully_pressed()
+	# The interlock reads the player's command, nothing else. The internal pedal state
+	# follows the plates, and in neutral the driveline spins the pedal to "pressed"
+	# on its own — which would have let a driver shift out of neutral for free.
+	var clutch_command: float = 1.0 - clampf(clutch_input, 0.0, 1.0)
+	var clutch_ok: bool = auto_clutch or clutch_command >= ClutchState.FULLY_PRESSED
 	if gearbox.profile != null and not gearbox.profile.requires_clutch:
 		clutch_ok = true
 	if not gearbox.request_gear(target, force, clutch_ok, forward_speed):
@@ -709,15 +798,27 @@ func wind_force_n(now_s: float) -> float:
 	var speed: float = absf(forward_speed)
 	return wind_force_scale * gust * area * (18.0 + 0.55 * speed * speed)
 
-func restart_engine() -> void:
-	if engine != null:
-		engine.start()
-		engine_running = true
-		engine_started.emit()
+func restart_engine() -> bool:
+	if engine == null:
+		return false
+	if engine.running:
+		return false
+	# A starter cannot crank a car that is in gear with the clutch out: either the
+	# pedal is down or the box is in neutral. Everything else is a push start.
+	var legal: bool = gearbox == null or gearbox.gear == 0 or clutch == null or clutch.is_fully_pressed()
+	if not legal or engine.stall_cooldown > 0.0:
+		return false
+	engine.start()
+	engine_running = true
+	engine_started.emit()
+	return true
 
 func speed_kmh() -> float:
 	return absf(Units.px2kmh(forward_speed * Units.PPM))
 
+## Recovery and respawn. It repositions the body and clears velocity, and nothing
+## else: in particular it does not resurrect a stalled engine, because that would
+## hand the player a free restart that the starter button refuses.
 func reset_motion(at: Transform2D) -> void:
 	global_transform = at
 	linear_velocity = Vector2.ZERO
@@ -727,8 +828,9 @@ func reset_motion(at: Transform2D) -> void:
 		axle.reset()
 	if gearbox != null:
 		gearbox.reset(gearbox.gear)
-	if engine != null and not engine.running:
-		engine.start()
+	clutch_heat = 0.0
+	if clutch != null:
+		clutch.reset()
 
 ## Snapshot of the driveline for HUD and tests.
 func driveline_state() -> Dictionary:

@@ -64,6 +64,7 @@ func _build() -> void:
 
 	_section(Loc.t("settings_controls"))
 	_content.add_child(_option_row(Loc.t("settings_preset"), [
+		{"label": Loc.t("layout_drive"), "value": "drive"},
 		{"label": Loc.t("layout_buttons"), "value": "buttons"},
 		{"label": Loc.t("layout_slider"), "value": "slider"},
 		{"label": Loc.t("layout_pedals"), "value": "pedals"},

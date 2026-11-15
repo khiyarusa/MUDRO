@@ -99,7 +99,7 @@ func _sb(bg: Color, border: Color) -> StyleBoxFlat:
 func _rebuild_preset_row() -> void:
 	for child: Node in _preset_row.get_children():
 		child.queue_free()
-	var names: Array[String] = [Loc.t("layout_buttons"), Loc.t("layout_slider"), Loc.t("layout_pedals")]
+	var names: Array[String] = [Loc.t("layout_drive"), Loc.t("layout_buttons"), Loc.t("layout_slider"), Loc.t("layout_pedals")]
 	for i: int in range(TouchControls.PRESETS.size()):
 		var preset: String = TouchControls.PRESETS[i]
 		var b := UIKit.button(names[i], SettingsService.control_preset == preset)

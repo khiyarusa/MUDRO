@@ -552,7 +552,9 @@ func apply_race_wear(vehicle_id: String, seconds: float, load_avg: float,
 			PartDef.Slot.TYRES:
 				amount = seconds * 0.012 + load_avg * 0.02
 			PartDef.Slot.CLUTCH:
-				amount = clutch_slip_s * 0.006 + wear * 0.5
+				# Slip is what wears a clutch, and a big diesel cover takes more of it
+				# before it goes away than a light petrol one.
+				amount = clutch_slip_s * 0.006 * clutch_heat_rate(vehicle_id) + wear * 0.5
 			PartDef.Slot.BRAKE_PADS, PartDef.Slot.BRAKE_DISCS:
 				amount = seconds * 0.004
 			PartDef.Slot.SPRINGS, PartDef.Slot.DAMPERS:
@@ -562,6 +564,15 @@ func apply_race_wear(vehicle_id: String, seconds: float, load_avg: float,
 		_bump_condition(cond, pid, amount)
 	entry["condition"] = cond
 	save_profile()
+
+## How fast slip wears the fitted clutch, for this car. A 2.5 t diesel cover is
+## built for the heat a light petrol one is not, so it loses condition more slowly
+## per second of slip.
+func clutch_heat_rate(vehicle_id: String) -> float:
+	var def: VehicleDef = Content.vehicle_by_id(vehicle_id)
+	if def == null:
+		return 1.0
+	return clampf(1.45 - def.clutch_fade_limit * 2.2, 0.55, 1.35)
 
 func _bump_condition(cond: Dictionary, part_id: String, amount: float) -> void:
 	if amount <= 0.0:

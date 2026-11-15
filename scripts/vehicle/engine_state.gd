@@ -28,6 +28,12 @@ func reset() -> void:
 
 func update(dt: float, target_throttle: float) -> void:
 	throttle_target = clampf(target_throttle, 0.0, 1.0)
+	# Timers must run whether or not the engine is running. A stalled engine that
+	# keeps its stall cooldown frozen can never be restarted.
+	if starter_timer > 0.0:
+		starter_timer = maxf(0.0, starter_timer - dt)
+	if stall_cooldown > 0.0:
+		stall_cooldown = maxf(0.0, stall_cooldown - dt)
 	if not running:
 		throttle = 0.0
 		return
@@ -37,10 +43,6 @@ func update(dt: float, target_throttle: float) -> void:
 		var rpm_band: float = clampf(1.0 - absf(rpm - config.turbo_rpm) / maxf(config.turbo_width, 1.0), 0.0, 1.0)
 		var target_boost: float = rpm_band * throttle
 		boost = move_toward(boost, target_boost, dt / maxf(config.turbo_lag, 0.05))
-	if starter_timer > 0.0:
-		starter_timer = maxf(0.0, starter_timer - dt)
-	if stall_cooldown > 0.0:
-		stall_cooldown = maxf(0.0, stall_cooldown - dt)
 
 ## Torque delivered at the crank, after the rev limiter, in Nm.
 func output_torque() -> float:
@@ -55,12 +57,17 @@ func output_torque() -> float:
 	return maxf(0.0, t)
 
 ## ECU idle governor: keeps a running engine from dying when the throttle is shut.
+## Capped at a fraction of the engine's own peak torque: an uncapped governor asked
+## a 130 Nm Jimny for 315 Nm at stall, which both invented torque and set the stall
+## threshold from a made-up number instead of from the engine.
 func idle_torque() -> float:
 	if not running or config == null:
 		return 0.0
 	if rpm >= config.idle_rpm:
 		return 0.0
-	return (config.idle_rpm - rpm) * 0.42
+	var authority: float = clampf((config.idle_rpm - rpm) / maxf(config.idle_rpm, 1.0), 0.0, 1.0)
+	var cap: float = config.peak_torque() * 0.25
+	return minf((config.idle_rpm - rpm) * 0.42, cap) * clampf(authority * 4.0, 0.0, 1.0)
 
 func friction_torque() -> float:
 	if config == null:

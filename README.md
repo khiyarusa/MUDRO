@@ -1,4 +1,4 @@
-# MUDRO 3.0 — MOUNTAIN RACING & AUTOMOTIVE WORKSHOP
+# MUDRO 3.1 — REAL DRIVER: CLUTCH, TRANSMISSION, MOUNTAIN ROADS
 
 A cinematic side-view off-road racing game for Android, built with **Godot 4.7.2** and
 typed GDScript. MUDRO is not a sprite with a speed variable: the vehicle is a real
@@ -11,7 +11,14 @@ no rock, log, tyre stack, barrier or broken bridge with its own collider anywher
 track. A race is now won by knowing the road, choosing the right car, tuning it and driving
 it well.
 
-![Main menu](docs/screenshots/v3.0/01_main_menu.png)
+**3.1 rebuilt the part where you actually drive it.** The manual gearbox is no longer a
+selector that happens to exist: the clutch is an analog pedal with a per-car bite point and
+engagement window, a shift is refused unless the pedal is on the floor, and a bad launch
+stalls a real engine that has to be restarted. The default layout is now clutch on the left,
+a large accelerator and a smaller brake on the right, and the H-pattern lever is its own
+panel that works under a second finger.
+
+![Driver layout](docs/screenshots/next-major-update/10_drive_layout_idle.png)
 
 ---
 
@@ -27,7 +34,9 @@ it well.
 | **Workshop** | 566 parts across 30 slots: engine internals, turbo, intercooler, fuel system, cooling, ECU, gearbox, clutch, transfer case, suspension, brakes, tyres, body, drivetrain |
 | **Engine model** | Boost, charge temperature and volumetric flow produce torque; the fuel system caps power; the rev limit is the lowest limit any fitted part can survive; the cooling system rejects heat or lets the engine derate |
 | **Dyno** | Torque and power curves swept from the same `EngineBuild` the physics uses — no invented numbers |
-| **Controls** | 3 presets (Buttons, Analog Slider, Analog Pedals), true multi-touch with per-finger ownership, drag-to-place layout editor, left/right hand, safe-area aware |
+| **Controls** | **3.1 default: clutch alone on the left, large accelerator and smaller brake on the right.** Three presets plus the driver layout, true multi-touch with per-finger ownership, drag-to-place layout editor, left/right hand, safe-area aware |
+| **Driver modes** | Realistic manual (pedal interlock, stall, restart), assisted manual (automatic clutch, no stall), full automatic (converter, PRNDL, kickdown, uphill hold, downhill gear choice) |
+| **Clutch** | Analog pedal, per-car bite point, engagement window, clamp rate, slip heat, fade limit and wear; the rail paints the fitted window |
 | **Presentation** | Hand-authored SVG art, quality-scaled parallax, surface-driven particles, project-synthesised audio, physical weather, Persian-first RTL UI with an English option |
 | **Radio** | Optional offline garage radio: a built-in project-made station plus sideloaded content packs validated against [`docs/RADIO_CONTENT_POLICY.md`](docs/RADIO_CONTENT_POLICY.md) |
 | **Platform** | Android, landscape, offline, arm64-v8a, 36.0 MB debug APK |
@@ -35,24 +44,39 @@ it well.
 
 ## Screenshots
 
-Forty-two real captures of the running game, with an index and an honest list of gaps:
-[`docs/screenshots/v3.0/INDEX.md`](docs/screenshots/v3.0/INDEX.md).
+Forty-one real captures of the running game, with an index and an honest list of gaps:
+[`docs/screenshots/next-major-update/INDEX.md`](docs/screenshots/next-major-update/INDEX.md).
 
 | | |
 |---|---|
-| ![Route briefing](docs/screenshots/v3.0/30_route_briefing.png) | ![Dyno](docs/screenshots/v3.0/26_dyno.png) |
-| Route briefing: every number measured from the profile | Dyno: curves swept from the fitted engine |
-| ![Uphill](docs/screenshots/v3.0/41_uphill_dirt.png) | ![Snow](docs/screenshots/v3.0/45_snow.png) |
-| Zagros dirt climb | Glacier Road |
+| ![H-pattern](docs/screenshots/next-major-update/14_h_pattern_first.png) | ![Automatic](docs/screenshots/next-major-update/16_automatic_selector.png) |
+| H-pattern lever latched in first, panel separate from the pedals | The same car converted to the automatic: PRNDL, and no clutch anywhere |
+| ![Launch](docs/screenshots/next-major-update/21_launch_pulling_away.png) | ![Stall](docs/screenshots/next-major-update/17_engine_stalled.png) |
+| A real launch: first gear, 8 km/h, plates home | A dumped clutch at idle: engine dead, starter offered |
 
-More: [garage](docs/screenshots/v3.0/11_garage_hilux_an120.png) ·
-[engine lab](docs/screenshots/v3.0/20_engine_lab.png) ·
-[suspension lab](docs/screenshots/v3.0/22_suspension_lab.png) ·
-[tyre shop](docs/screenshots/v3.0/23_tire_shop.png) ·
-[repair](docs/screenshots/v3.0/27_repair.png) ·
-[results](docs/screenshots/v3.0/60_race_results.png) ·
-[controls](docs/screenshots/v3.0/50_controls_buttons.png) ·
-[radio](docs/screenshots/v3.0/08_radio.png)
+More: [route briefing](docs/screenshots/next-major-update/32_route_briefing.png) ·
+[garage](docs/screenshots/next-major-update/03_garage_hilux.png) ·
+[engine lab](docs/screenshots/next-major-update/45_engine_lab.png) ·
+[suspension lab](docs/screenshots/next-major-update/46_suspension_lab.png) ·
+[tyre shop](docs/screenshots/next-major-update/05_tyre_shop.png) ·
+[dyno](docs/screenshots/next-major-update/06_dyno.png) ·
+[uphill](docs/screenshots/next-major-update/22_uphill_climb.png) ·
+[snow](docs/screenshots/next-major-update/25_snow_road.png) ·
+[results](docs/screenshots/next-major-update/60_race_results.png)
+
+## What 3.1 changed, in one page
+
+| Area | Before | Now |
+|---|---|---|
+| Clutch | One pedal law and one bite point for every car; the rail drew a constant band | Per car: bite point, engagement window (0.38 organic / 0.28 heavy-duty / 0.22 twin plate), clamp rate, slip heat capacity, fade limit, wear rate |
+| Shift gate | A shift could be forced from the keyboard, and reverse skipped the pedal test entirely | Every gear including R needs `clutch >= 0.98`; the gate is drawn from the gearbox definition (1 3 5 / 2 4 R) |
+| Stall | Geometric side effect; every manual car stalled in neutral on the start line | Only when a clutch is actually loading a running engine: dumping at idle, too tall a gear, a heavy car on a climb. Restart needs the pedal or neutral |
+| Assist | Manual pedal with a shift bypass that could still stall | A real automatic clutch with a manual override; no stall |
+| Automatic | A conversion part that still demanded a clutch, crept off the line, had no uphill hold or downhill choice | No pedal, no stall, converter, kickdown, uphill hold, descent gear selection, PRNDL including L, pawl gated by speed |
+| Layout | Throttle and brake on opposite sides, no left-hand clutch column | Clutch left; 168×432 accelerator and 104×300 brake on the right; lever and parking brake above the brake; every position checked against the HUD |
+| Transmission picker | The route briefing wrote a key the build never read | The pick is honoured unless a non-stock gearbox part is fitted |
+
+Details, evidence and the defect list: [`docs/MUDRO_3_1_BASELINE_AUDIT.md`](docs/MUDRO_3_1_BASELINE_AUDIT.md).
 
 ## How a race works
 
@@ -95,6 +119,11 @@ arches; an under-rated gearbox is refused with a reason.
 thermal behaviour, the dyno, transmissions, save migration, mobile/UI contracts, radio pack
 gates and weather profiles. Exit code 0 means every assertion passed.
 
+3.1 raises that to **423**: section L closes the driver-experience regressions (automatic
+conversion without a pedal, assisted launch that cannot stall, reverse interlock, parking pawl
+at speed, per-car cover data, the painted bite window, lever finger ownership). Current run:
+`TESTS: 423/423 passed`.
+
 ### Load every scene
 
 ```powershell
@@ -111,16 +140,16 @@ runtime error. (A plain `--check-only` cannot see autoload singletons and will r
 .\tools\local_build\build_android_debug.ps1
 ```
 
-Exports `local-builds/android/MUDRO-3.0-debug.apk`, then verifies the package id,
+Exports `local-builds/android/MUDRO-next-major-debug.apk`, then verifies the package id,
 architectures and signature with `aapt2`/`apksigner` and writes
-`local-builds/reports/MUDRO-3.0-BUILD-REPORT.md`. Requires Godot 4.7.2 with the Android
+`local-builds/reports/ANDROID_BUILD_REPORT.md`. Requires Godot 4.7.2 with the Android
 export templates and an Android SDK; set `GODOT_BIN` if Godot is not in the default
 location.
 
 ### Capture the screenshots
 
 ```powershell
-& $env:GODOT_BIN --path . --resolution 1280x720 res://tools/capture_v3.tscn
+& $env:GODOT_BIN --path . --resolution 1280x720 res://tools/capture_v31.tscn
 ```
 
 Not `--headless`: the harness saves what the renderer produced. It snapshots and restores
@@ -169,7 +198,9 @@ Stated plainly, because a limitation list that flatters the build is worthless:
 
 * **No Android hardware test in this pass.** The APK builds, signs and verifies, and every
   scene runs on desktop at 1280×720. It was **not** installed on a Galaxy A23 during this
-  work, so the 60 FPS target on that device is a design goal, not a measurement.
+  work, so the 60 FPS target on that device is a design goal, not a measurement, and the
+  three-finger clutch/lever/throttle interaction is proven by touch indices in the suite,
+  not by a phone.
 * **The vehicles are stylised 2D art, not licensed 3D models.** No real 3D model with a
   commercial licence was found that was also safe to redistribute, so the cars are
   original drawings matched to each vehicle's real proportions, wheelbase and mechanical

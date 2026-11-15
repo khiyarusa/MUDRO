@@ -31,6 +31,7 @@ var _damage_bar: ProgressBar
 var _rpm_bar: ProgressBar
 var _rpm_fill: StyleBoxFlat
 var _clutch_bar: ProgressBar
+var _clutch_caption: Label
 var _clutch_fill: StyleBoxFlat
 var _countdown_label: Label
 var _pause_panel: Control
@@ -179,6 +180,7 @@ func _build() -> void:
 	rpm_box.add_child(_rpm_bar)
 	var clutch_caption := UIKit.caption(Loc.t("hud_clutch"))
 	clutch_caption.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_clutch_caption = clutch_caption
 	rpm_box.add_child(clutch_caption)
 	_clutch_bar = ProgressBar.new()
 	_clutch_bar.max_value = 100.0
@@ -255,7 +257,9 @@ func _layout() -> void:
 		_status_row.position = Vector2(right - 314.0, top + 122.0)
 		_status_row.size = Vector2(300, 44)
 	if _drive_panel != null:
-		var pw: float = minf(520.0, w * 0.46)
+		# Wide enough for gear, speed, rpm and clutch, narrow enough to clear the brake
+		# column on both sides: at 1280 the panel used to end 6 px inside the brake.
+		var pw: float = minf(500.0, w * 0.42)
 		_drive_panel.size = Vector2(pw, 128)
 		_drive_panel.position = Vector2((w - pw) * 0.5, bottom - 140.0)
 	_countdown_label.position = Vector2(0, h * 0.28)
@@ -305,6 +309,12 @@ func _process(_delta: float) -> void:
 	var pedal: float = float(t.get("clutch_pedal", 0.0))
 	_clutch_bar.value = clampf(pedal * 100.0, 0.0, 100.0)
 	_clutch_fill.bg_color = UIKit.TEAL if pedal >= VehicleInputState.CLUTCH_FULL else UIKit.AMBER
+	# An automatic has no pedal: a live clutch bar on a PRNDL car is a readout of a
+	# control the driver does not have, so it is hidden rather than faked.
+	var has_pedal: bool = vehicle != null and vehicle.manual_clutch_enabled
+	_clutch_bar.visible = has_pedal
+	if _clutch_caption != null:
+		_clutch_caption.visible = has_pedal
 	_gearbox_label.text = _gearbox_text(t)
 
 	var transfer: String = String(t.get("transfer", ""))

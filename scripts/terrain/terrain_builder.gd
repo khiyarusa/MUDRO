@@ -185,29 +185,35 @@ func _build_surface_paint() -> void:
 		line.begin_cap_mode = Line2D.LINE_CAP_ROUND
 		line.end_cap_mode = Line2D.LINE_CAP_ROUND
 		line.antialiased = true
+		# Anchor the band to the exact section ends, not to the nearest 0.35 m sample:
+		# sampling alone left a 22 px strip of bare ground at every surface change.
+		line.add_point(Vector2(from_m * Units.PPM, -elevation_m(from_m) * Units.PPM + 1.0))
 		for sample: Vector2 in _samples:
 			var xm: float = sample.x / Units.PPM
-			if xm >= from_m and xm <= to_m:
+			if xm > from_m and xm < to_m:
 				line.add_point(sample + Vector2(0, 1.0))
+		line.add_point(Vector2(to_m * Units.PPM, -elevation_m(to_m) * Units.PPM + 1.0))
 		if line.get_point_count() >= 2:
 			add_child(line)
 
 func _build_roadside_markers() -> void:
 	# Marker posts every 25 m: a speed and distance reference that costs nothing and
-	# never touches the car.
-	var marker := Line2D.new()
-	marker.name = "RoadMarkers"
-	marker.z_index = -1
-	marker.width = 2.5
-	marker.default_color = Color(0.92, 0.90, 0.84, 0.55)
+	# never touches the car. One Line2D per post — a single polyline through every
+	# post drew a wire fence diagonally along the road.
+	var posts := Node2D.new()
+	posts.name = "RoadMarkers"
+	posts.z_index = -1
+	add_child(posts)
 	var x_m: float = 20.0
 	while x_m < track.length_m() - 10.0:
 		var base := Vector2(x_m * Units.PPM, -track.elevation_at(x_m) * Units.PPM)
-		marker.add_point(base)
-		marker.add_point(base + Vector2(0, -1.0 * Units.PPM))
+		var post := Line2D.new()
+		post.width = 2.5
+		post.default_color = Color(0.92, 0.90, 0.84, 0.55)
+		post.add_point(base)
+		post.add_point(base + Vector2(0, -1.0 * Units.PPM))
+		posts.add_child(post)
 		x_m += 25.0
-	if marker.get_point_count() >= 2:
-		add_child(marker)
 
 # ------------------------------------------------------------------ scenery ---
 ## Scenery is presentation only. Every node created here is a Sprite2D or Line2D

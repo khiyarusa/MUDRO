@@ -13,6 +13,8 @@ const REJECT_SHIFTING: String = "shifting"
 const REJECT_REVERSE: String = "reverse"
 const REJECT_OVERREV: String = "overrev"
 const REJECT_RANGE: String = "range"
+## Parking pawl refused: it cannot engage while the car is rolling.
+const REJECT_PARK: String = "park"
 const REJECT_STALLED: String = "stalled"
 
 var profile: TransmissionProfile
@@ -38,6 +40,9 @@ var range_id: String = "D"
 var kickdown_timer: float = 0.0
 var auto_hold: float = 0.0
 var converter_slip_rpm: float = 0.0
+## Last known road speed, pushed in by the body every physics tick so a range
+## change can refuse reverse without needing a speed argument from the UI.
+var vehicle_speed: float = 0.0
 
 func _init(source: Resource = null) -> void:
 	if source != null:
@@ -135,16 +140,20 @@ func can_engage(target: int, speed_mps: float = 0.0, clutch_ok: bool = true) -> 
 		return REJECT_RANGE
 	if is_shifting():
 		return REJECT_SHIFTING
+	if target == 0:
+		# Neutral is always available: it is the escape hatch, not a shift.
+		return REJECT_NONE
+	# The pedal gate covers every gear, reverse included. It used to sit below the
+	# reverse branch, so a gamepad or the shift-down key could select R with the
+	# clutch out — exactly the silent shift the manual box exists to refuse.
+	if profile.requires_clutch and not clutch_ok:
+		return REJECT_CLUTCH
 	if target == -1:
 		if not profile.has_reverse:
 			return REJECT_RANGE
 		if speed_mps > 1.4:
 			return REJECT_REVERSE
 		return REJECT_NONE
-	if target == 0:
-		return REJECT_NONE
-	if profile.requires_clutch and not clutch_ok:
-		return REJECT_CLUTCH
 	var limit: float = max_speed_for(target) * (1.0 + profile.overrev_margin)
 	if absf(speed_mps) > limit:
 		return REJECT_OVERREV
@@ -216,7 +225,9 @@ func cycle_transfer() -> String:
 
 func transfer_drives_front() -> bool:
 	var id: String = transfer_id()
-	return id == "4H" or id == "4L" or id == "AWD"
+	# Data-driven: any mode that names four driven wheels drives the front axle. The
+	# Pajero's 4HLc and 4LLc used to fall through this check and drove the rear only.
+	return id.begins_with("4") or id == "AWD" or id == "4WD"
 
 func has_low_range() -> bool:
 	return transfer_ids.has("4L")
@@ -241,9 +252,19 @@ func set_range(id: String) -> bool:
 		return false
 	if id == range_id:
 		return false
+	# A refusal must leave the range where it was and say why. `range_id` used to be
+	# assigned before the speed gates ran, so a rejected R still dropped the box into
+	# N — a silent shift the player never asked for.
+	if id == "P" and absf(vehicle_speed) > 1.0:
+		reject_reason = REJECT_PARK
+		return false
+	if id == "R" and absf(vehicle_speed) > 1.4:
+		reject_reason = REJECT_REVERSE
+		return false
 	range_id = id
 	match id:
 		"P":
+			# A parking pawl cannot engage above walking pace.
 			request_gear(0, true)
 			return true
 		"N":
@@ -274,6 +295,7 @@ func auto_update(dt: float, rpm: float, throttle: float, speed_mps: float,
 	update(dt)
 	if profile == null or not profile.is_automatic() or is_shifting():
 		return
+	auto_hold = maxf(0.0, auto_hold - dt)
 	if range_id == "P" or range_id == "N":
 		return
 	if range_id == "R":
@@ -297,18 +319,27 @@ func auto_update(dt: float, rpm: float, throttle: float, speed_mps: float,
 	var kick: bool = throttle >= profile.kickdown_throttle and rpm < engine_redline * profile.kickdown_rpm_fraction
 	var lug: bool = load_frac > 0.55 and rpm < engine_redline * 0.42
 	var grade: bool = slope_deg > profile.slope_downshift_deg and rpm < engine_redline * 0.60
+	# Downhill, the box picks a lower gear for engine braking instead of coasting up
+	# a gear and riding the brakes down a pass.
+	var descent: bool = slope_deg < -profile.slope_downshift_deg and throttle < 0.3 \
+		and rpm < engine_redline * 0.62
 	var spinning: bool = absf(slip) > 1.2
+
+	# A climb under load holds the gear that is pulling: without this the box hunts
+	# up a gear on a ramp, loses the torque and drops straight back down.
+	if slope_deg > profile.slope_downshift_deg * 0.6 and load_frac > 0.40 and throttle > 0.35:
+		auto_hold = maxf(auto_hold, profile.kickdown_hold_s * 0.5)
 
 	# Downshift first: a kickdown or a lugging engine matters more than a smooth
 	# upshift schedule.
 	if gear > 1:
-		var need_lower: bool = kick or lug or grade
+		var need_lower: bool = kick or lug or grade or descent
 		if need_lower or (rpm < down_rpm and time_in_gear > 0.45 and not spinning):
 			if request_gear(gear - 1, true):
 				kickdown_timer = profile.kickdown_hold_s if kick else 0.0
 			return
 
-	if kickdown_timer > 0.0:
+	if kickdown_timer > 0.0 or auto_hold > 0.0:
 		return
 	if rpm > up_rpm and gear < top and speed_mps > 1.2 and not spinning:
 		var next_ratio_speed: float = max_speed_for(gear + 1)

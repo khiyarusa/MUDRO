@@ -18,6 +18,10 @@ extends Node
 ##   G  the gearbox / clutch interlocks
 ##   H  the v4 -> v5 save migration
 ##   I  mobile/UI data contracts
+##   J  radio content packs and their licence gates
+##   K  weather profiles and wind
+##   L  3.1 driver experience: default control layout, three-finger multi-touch,
+##      the clutch interlock, per-vehicle clutch data, and stalls on real physics
 
 const DOC_VEHICLE_IDS: Array[String] = [
 	"jimny_jb74", "hilux_an120", "patrol_y61", "pajero_v80", "lc79",
@@ -56,6 +60,7 @@ func _ready() -> void:
 	_test_i_data_contracts()
 	await _test_j_radio()
 	_test_k_weather()
+	await _test_l_driver31()
 	_report()
 
 func _report() -> void:
@@ -1153,3 +1158,715 @@ func _test_k_weather() -> void:
 	_check("K. a taller car catches more wind", tall_force > small_force,
 		"lc79 %.0f N vs jimny %.0f N" % [tall_force, small_force])
 	body.free()
+
+# ------------------------------------------- L. 3.1 driver experience ---
+## Everything in this section is behavioural. No assertion asks "does the node
+## exist": the control layer is driven with synthetic finger indices, the gearbox
+## is asked to reject a shift, and the stall tests let a real RigidBody2D rest on a
+## real floor for a real second of physics.
+
+func _test_l_driver31() -> void:
+	_test_l0_compile()
+	await _test_l1_default_layout()
+	await _test_l2_multitouch()
+	_test_l3_clutch_interlock()
+	_test_l4_clutch_data()
+	await _test_l5_stall()
+	await _test_l6_modes_and_interlocks()
+
+# --- L0: nothing ships broken ------------------------------------------------
+
+func _collect_scripts(dir_path: String, out: Array[String]) -> void:
+	var dir: DirAccess = DirAccess.open(dir_path)
+	if dir == null:
+		return
+	dir.list_dir_begin()
+	var entry: String = dir.get_next()
+	while entry != "":
+		if entry.begins_with("."):
+			entry = dir.get_next()
+			continue
+		var full: String = dir_path.path_join(entry)
+		if dir.current_is_dir():
+			_collect_scripts(full, out)
+		elif entry.ends_with(".gd"):
+			out.append(full)
+		entry = dir.get_next()
+	dir.list_dir_end()
+
+## A script that does not compile is not a missing feature, it is a broken build.
+## The 3.0 suite proved the terrain builder compiled but never checked the rest of
+## the project, which is how a syntax error in the lever panel shipped.
+func _test_l0_compile() -> void:
+	_section("L0. Every gameplay script compiles")
+	var paths: Array[String] = []
+	_collect_scripts("res://scripts", paths)
+	_check("L0. the script tree was found", paths.size() > 40, "%d scripts" % paths.size())
+	var broken: Array[String] = []
+	for path: String in paths:
+		var script: Script = load(path) as Script
+		if script == null or not script.can_instantiate():
+			broken.append(path.replace("res://scripts/", ""))
+	_check("L0. every script under scripts/ compiles", broken.is_empty(),
+		"%d broken: %s" % [broken.size(), _join(broken)])
+
+# --- L1: the mandated arrangement ---------------------------------------------
+
+func _test_l1_default_layout() -> void:
+	_section("L1. Default control layout (clutch left, throttle + brake right)")
+	_check("L1. the shipped default preset is the driver layout",
+		SettingsService.DEFAULT_PRESET == "drive",
+		"default '%s'" % SettingsService.DEFAULT_PRESET)
+	_check("L1. the saved default preset is the driver layout",
+		String(SettingsService._defaults().get("control_preset", "")) == "drive",
+		"%s" % String(SettingsService._defaults().get("control_preset", "")))
+
+	var previous_preset: String = SettingsService.control_preset
+	SettingsService.control_preset = "drive"
+	var def: VehicleDef = Content.vehicle_by_id("hilux_an120")
+	var profile: TransmissionProfile = def.transmission_by_id("hilux_m6")
+	var controls := TouchControls.new()
+	controls.name = "L1Controls"
+	add_child(controls)
+	controls.setup(profile, null)
+	await get_tree().process_frame
+
+	var view: Vector2 = controls._view()
+	_check("L1. a clutch control exists in a manual car",
+		controls.widgets.has("clutch"), "widgets %d" % controls.widgets.size())
+	var clutch: TouchWidget = controls.widgets.get("clutch", null) as TouchWidget
+	var throttle: TouchWidget = controls.widgets.get("throttle", null) as TouchWidget
+	var brake: TouchWidget = controls.widgets.get("brake", null) as TouchWidget
+	_check("L1. throttle and brake both exist", throttle != null and brake != null, "")
+
+	if clutch != null and throttle != null and brake != null:
+		var clutch_cx: float = clutch.position.x + clutch.size.x * 0.5
+		var throttle_cx: float = throttle.position.x + throttle.size.x * 0.5
+		var brake_cx: float = brake.position.x + brake.size.x * 0.5
+		var third: float = view.x / 3.0
+		_check("L1. the clutch sits on the left third",
+			clutch_cx < third, "clutch x=%s of %s" % [_f(clutch_cx, 0), _f(view.x, 0)])
+		_check("L1. the throttle sits on the right third",
+			throttle_cx > view.x - third, "throttle x=%s" % _f(throttle_cx, 0))
+		_check("L1. the brake sits on the right third",
+			brake_cx > view.x - third, "brake x=%s" % _f(brake_cx, 0))
+		_check("L1. the throttle is the larger pedal",
+			throttle.size.x * throttle.size.y > brake.size.x * brake.size.y * 1.25,
+			"throttle %sx%s vs brake %sx%s" % [
+				_f(throttle.size.x, 0), _f(throttle.size.y, 0),
+				_f(brake.size.x, 0), _f(brake.size.y, 0)])
+
+		# "LEFT: CLUTCH" means the left third holds the clutch and no driving control.
+		var intruders: Array[String] = []
+		for id: String in controls.widgets.keys():
+			if id == "clutch" or id == "recover" or id == "winch" or id == "start":
+				continue
+			var w: TouchWidget = controls.widgets[id] as TouchWidget
+			var cx: float = w.position.x + w.size.x * 0.5
+			if cx < third:
+				intruders.append(id)
+		_check("L1. no driving control is on the clutch side",
+			intruders.is_empty(), _join(intruders))
+
+		var as_slider: TouchSlider = clutch as TouchSlider
+		_check("L1. the clutch is an analog slider",
+			as_slider != null, "type %s" % clutch.get_class())
+		if as_slider != null:
+			_check("L1. the clutch rail is tall and slim",
+				as_slider.size.y > as_slider.size.x * 2.5,
+				"%s x %s" % [_f(as_slider.size.x, 0), _f(as_slider.size.y, 0)])
+			_check("L1. the clutch travels downward to the floor",
+				as_slider.value_at_bottom, "value_at_bottom=%s" % str(as_slider.value_at_bottom))
+			_check("L1. the clutch paints a real bite window",
+				as_slider.bite_band.y > as_slider.bite_band.x and as_slider.bite_band.y <= 1.0,
+				"bite %.2f..%.2f" % [as_slider.bite_band.x, as_slider.bite_band.y])
+			# A pedal that jumps to a random rail position on touch cannot be
+			# modulated: it either dumps the clutch or stalls the engine.
+			_check("L1. the clutch is not an absolute-position slider",
+				as_slider.mode == TouchSlider.Mode.PEDAL, "mode %d" % int(as_slider.mode))
+
+	# An automatic car has no clutch pedal to show.
+	var auto_profile: TransmissionProfile = def.transmission_by_id("hilux_a6")
+	var auto_controls := TouchControls.new()
+	add_child(auto_controls)
+	auto_controls.setup(auto_profile, null)
+	await get_tree().process_frame
+	_check("L1. an automatic car shows no clutch pedal",
+		not auto_controls.widgets.has("clutch"),
+		"%d widgets" % auto_controls.widgets.size())
+	auto_controls.queue_free()
+	controls.queue_free()
+	SettingsService.control_preset = previous_preset
+	await get_tree().process_frame
+
+# --- L2: real multi-touch -----------------------------------------------------
+
+func _test_l2_multitouch() -> void:
+	_section("L2. Three independent fingers: clutch + lever + throttle")
+	var previous_preset: String = SettingsService.control_preset
+	SettingsService.control_preset = "drive"
+	var def: VehicleDef = Content.vehicle_by_id("jimny_jb74")
+	var profile: TransmissionProfile = def.transmission_by_id("jimny_m5")
+	var controls := TouchControls.new()
+	add_child(controls)
+	controls.setup(profile, null)
+	var log_ref: Dictionary = {"gears": []}
+	controls.gear_requested.connect(func(g: int) -> void: (log_ref["gears"] as Array).append(g))
+	await get_tree().process_frame
+
+	var clutch: TouchWidget = controls.widgets.get("clutch", null) as TouchWidget
+	var throttle: TouchWidget = controls.widgets.get("throttle", null) as TouchWidget
+	var gear_button: TouchWidget = controls.widgets.get("gear", null) as TouchWidget
+	_check("L2. the layer built a clutch, a throttle and a lever button",
+		clutch != null and throttle != null and gear_button != null, "")
+	if clutch == null or throttle == null or gear_button == null:
+		controls.queue_free()
+		SettingsService.control_preset = previous_preset
+		return
+
+	# Finger 0: press the clutch rail. A clutch rail must press to the floor.
+	var clutch_centre: Vector2 = clutch.position + clutch.size * 0.5
+	controls._begin(0, clutch_centre)
+	_check("L2. touching the clutch presses it to the floor",
+		is_equal_approx(clutch.value, 1.0), "value %s" % _f(clutch.value, 2))
+
+	# Finger 1: open the lever panel with the clutch still held.
+	controls._begin(1, gear_button.position + gear_button.size * 0.5)
+	controls._end(1)
+	# The panel slides in over ~0.2 s; read its final position, not its start.
+	await get_tree().create_timer(0.30).timeout
+	_check("L2. the lever panel opens over a held clutch",
+		controls.panel_open and controls.panel != null and controls.panel.visible,
+		"open=%s panel=%s visible=%s" % [str(controls.panel_open), str(controls.panel != null),
+			str(controls.panel.visible if controls.panel != null else false)])
+	_check("L2. the clutch keeps its value when the panel opens",
+		is_equal_approx(clutch.value, 1.0), "value %s" % _f(clutch.value, 2))
+
+	var panel: GearPanel = controls.panel
+	_check("L2. the panel knows the clutch is down",
+		panel._clutch_ready(), "pedal %.2f assist %s" % [panel.clutch_pedal, str(panel.auto_clutch)])
+	# Finger 1 again: drag the lever into first gear.
+	var node_px: Vector2 = panel._to_px(profile.gate_node(1))
+	controls._begin(1, panel.position + node_px)
+	await get_tree().process_frame
+	_check("L2. the lever engages a gear with the clutch down",
+		(log_ref["gears"] as Array).has(1), "requested %s" % str(log_ref["gears"]))
+	_check("L2. the clutch is untouched by the lever finger",
+		is_equal_approx(clutch.value, 1.0), "value %s" % _f(clutch.value, 2))
+	controls._end(1)
+
+	# Finger 2: throttle, while the clutch is still held.
+	controls._begin(2, throttle.position + Vector2(throttle.size.x * 0.5, throttle.size.y * 0.12))
+	var state: VehicleInputState = controls.input_state()
+	_check("L2. clutch and throttle are held at the same time",
+		state.clutch > 0.95 and state.throttle > 0.5,
+		"clutch %.2f throttle %.2f" % [state.clutch, state.throttle])
+
+	# Lifting the throttle finger must not lift the clutch finger.
+	controls._end(2)
+	_check("L2. releasing the throttle leaves the clutch pressed",
+		is_equal_approx(clutch.value, 1.0) and not throttle.active,
+		"clutch %.2f throttle active=%s" % [clutch.value, str(throttle.active)])
+	for i: int in range(20):
+		throttle._process(0.08)
+	_check("L2. the released throttle returns to zero", throttle.value < 0.05,
+		"throttle %.2f after 1.6 s" % throttle.value)
+
+	# Lifting the clutch finger lets the pedal out: value must fall, not snap.
+	controls._end(0)
+	clutch._process(0.05)
+	var after: float = clutch.value
+	_check("L2. releasing the clutch pedal releases it progressively",
+		after > 0.0 and after < 1.0, "value %s after 50 ms" % _f(after, 2))
+
+	# A cancelled touch or a pause must not leave a pedal stuck down.
+	controls._begin(3, clutch_centre)
+	controls.release_all()
+	_check("L2. pause / focus loss clears every finger",
+		controls._fingers.is_empty(), "fingers %d" % controls._fingers.size())
+
+	# A second finger landing on a control another finger already owns must not steal
+	# it: lifting either finger would otherwise drop the pedal under the other one.
+	var throttle_point: Vector2 = throttle.position + throttle.size * 0.5
+	controls._begin(4, throttle_point)
+	var owner_before: int = throttle.finger_id
+	var stolen: bool = controls._begin(5, throttle_point)
+	_check("L2. a second finger cannot steal a held control",
+		not stolen and throttle.finger_id == owner_before,
+		"owner %d -> %d, second begin %s" % [owner_before, throttle.finger_id, str(stolen)])
+	controls._end(4)
+	controls.release_all()
+	controls.queue_free()
+	SettingsService.control_preset = previous_preset
+	await get_tree().process_frame
+
+# --- L3: the manual shift interlock ------------------------------------------
+
+func _test_l3_clutch_interlock() -> void:
+	_section("L3. Manual shifts require the clutch")
+	var def: VehicleDef = GarageModel.build(Content.vehicle_by_id("hilux_an120"), GarageModel.empty_config())
+	var body := VehicleBody.new()
+	body.setup(def, Content.surfaces)
+	body.configure_driver(false)
+	_check("L3. realistic manual exposes a manual clutch",
+		body.manual_clutch_enabled and not body.auto_clutch,
+		"manual %s assist %s" % [str(body.manual_clutch_enabled), str(body.auto_clutch)])
+	body.set_gear(1)
+	body.gearbox.update(1.0)
+
+	# Pedal out (clutch engaged): the box must refuse to move.
+	body.set_inputs(0.0, 0.0, 0.0, 1.0)
+	var refused: bool = not body.select_gear(2)
+	_check("L3. a shift with the pedal out is refused",
+		refused and body.gearbox.gear == 1 and body.gearbox.reject_reason == GearboxState.REJECT_CLUTCH,
+		"reason '%s' gear %d" % [body.gearbox.reject_reason, body.gearbox.gear])
+
+	# Pedal to the floor: the same shift is accepted.
+	body.set_inputs(0.0, 0.0, 0.0, 0.0)
+	_check("L3. the pedal reads as fully pressed at the floor",
+		body.clutch_pedal() >= ClutchState.FULLY_PRESSED,
+		"pedal command %s" % _f(body.clutch_pedal(), 3))
+	var accepted: bool = body.select_gear(2)
+	_check("L3. the same shift is accepted with the clutch down",
+		accepted and body.gearbox.gear == 2, "gear %d" % body.gearbox.gear)
+
+	# 0.97 of pedal travel must NOT be enough: the published rule is 0.98.
+	body.gearbox.update(1.0)
+	body.set_inputs(0.0, 0.0, 0.0, 0.03)
+	var nearly: bool = not body.select_gear(3)
+	_check("L3. 97 % pedal is not enough to shift", nearly,
+		"pedal %s, reason '%s'" % [_f(body.clutch_pedal(), 3), body.gearbox.reject_reason])
+
+	# Gear choice has to change wheel torque, not just the HUD number.
+	body.gearbox.update(1.0)
+	body.set_inputs(0.0, 0.0, 0.0, 0.0)
+	body.select_gear(1)
+	body.gearbox.update(1.0)
+	var first_torque: float = absf(body.gearbox.wheel_torque(200.0))
+	body.select_gear(4)
+	body.gearbox.update(1.0)
+	var fourth_torque: float = absf(body.gearbox.wheel_torque(200.0))
+	_check("L3. first gear multiplies torque harder than fourth",
+		first_torque > fourth_torque * 1.5,
+		"1st %.0f Nm vs 4th %.0f Nm at the wheel" % [first_torque, fourth_torque])
+
+	# From neutral the driveline spins the internal pedal to "pressed" on its own.
+	# The interlock must read the player's command, not that derived state.
+	var neutral := VehicleBody.new()
+	neutral.setup(def, Content.surfaces)
+	neutral.configure_driver(false)
+	neutral.gearbox.reset(0)
+	neutral.clutch.engagement = 0.0
+	neutral.clutch.pedal = 1.0 - neutral.clutch.engagement
+	neutral.set_inputs(0.0, 0.0, 0.0, 1.0)
+	_check("L3. the neutral clutch state looks pressed even with the pedal out",
+		neutral.clutch.is_fully_pressed(), "pedal %.2f" % neutral.clutch.pedal)
+	var neutral_shift: bool = not neutral.select_gear(1)
+	_check("L3. neutral does not hand out a free shift",
+		neutral_shift and neutral.gearbox.gear == 0,
+		"gear %d, reason '%s'" % [neutral.gearbox.gear, neutral.gearbox.reject_reason])
+	neutral.set_inputs(0.0, 0.0, 0.0, 0.0)
+	_check("L3. the same shift works with the pedal down", neutral.select_gear(1),
+		"gear %d" % neutral.gearbox.gear)
+	neutral.free()
+
+	# Assisted manual lets the box accept the shift without the pedal, by design.
+	var assisted := VehicleBody.new()
+	assisted.setup(def, Content.surfaces)
+	assisted.configure_driver(true)
+	assisted.set_gear(1)
+	assisted.gearbox.update(1.0)
+	assisted.set_inputs(0.0, 0.0, 0.0, 1.0)
+	var assisted_shift: bool = assisted.select_gear(2)
+	_check("L3. assisted manual shifts without the pedal",
+		assisted_shift, "gear %d" % assisted.gearbox.gear)
+
+	# Reverse is still protected at speed even with the clutch down.
+	assisted.gearbox.update(1.0)
+	var reverse_ok: bool = assisted.gearbox.can_engage(-1, 0.0, true) == GearboxState.REJECT_NONE
+	var reverse_fast: String = assisted.gearbox.can_engage(-1, 8.0, true)
+	_check("L3. reverse needs a standstill",
+		reverse_ok and reverse_fast == GearboxState.REJECT_REVERSE, "at 8 m/s: '%s'" % reverse_fast)
+
+	# A 5-speed H gate must be the real 3-column pattern, with R beside 5.
+	var jimny: VehicleDef = Content.vehicle_by_id("jimny_jb74")
+	var five: TransmissionProfile = jimny.transmission_by_id("jimny_m5")
+	var columns: int = five.gate_column_count()
+	var fifth: Vector2 = five.gate_node(5)
+	var reverse: Vector2 = five.gate_node(-1)
+	_check("L3. a 5-speed gate has three columns", columns == 3, "%d columns" % columns)
+	_check("L3. 5th and reverse share the last column",
+		is_equal_approx(fifth.x, reverse.x) and fifth.y < 0.5 and reverse.y > 0.5,
+		"5th %s, R %s" % [str(fifth), str(reverse)])
+	var straight: Dictionary = five.gate_project(Vector2(fifth.x, 0.30))
+	_check("L3. the lever reaches 5th along its own gate",
+		int(straight.get("gear", -1)) == 5, "gear %d" % int(straight.get("gear", -1)))
+	var diagonal: Dictionary = five.gate_project(Vector2(0.5, 0.5))
+	_check("L3. the centre of the plate is neutral",
+		int(diagonal.get("gear", -1)) == 0, "gear %d" % int(diagonal.get("gear", -1)))
+	var illegal: Dictionary = five.gate_project(Vector2(five.gate_x(0) + 0.02, 0.5))
+	_check("L3. a position on the neutral rail engages no gear",
+		int(illegal.get("gear", -1)) == 0, "gear %d" % int(illegal.get("gear", -1)))
+
+	var six: TransmissionProfile = Content.vehicle_by_id("hilux_an120").transmission_by_id("hilux_m6")
+	_check("L3. a 6-speed gate needs its own reverse column",
+		six.gate_column_count() == 4, "%d columns" % six.gate_column_count())
+
+	body.free()
+	assisted.free()
+
+# --- L4: per-vehicle clutch data ---------------------------------------------
+
+func _test_l4_clutch_data() -> void:
+	_section("L4. Each vehicle's clutch behaves differently")
+	var bites: Array[float] = []
+	var capacities: Array[float] = []
+	for id: String in DOC_VEHICLE_IDS:
+		var def: VehicleDef = GarageModel.build(Content.vehicle_by_id(id), GarageModel.empty_config())
+		var body := VehicleBody.new()
+		body.setup(def, Content.surfaces)
+		bites.append(body.clutch.bite_point)
+		capacities.append(body.clutch_capacity_base)
+		body.free()
+
+	var distinct_caps: bool = true
+	for i: int in range(capacities.size()):
+		for j: int in range(i):
+			if absf(capacities[i] - capacities[j]) < 1.0:
+				distinct_caps = false
+	_check("L4. every vehicle has a clutch capacity", capacities.size() == 5, "%d" % capacities.size())
+	_check("L4. clutch capacities differ between vehicles", distinct_caps, "%s" % str(capacities))
+	_check("L4. stock bite points are in a drivable window",
+		bites.size() == 5 and bites.min() > 0.30 and bites.max() < 0.85, "%s" % str(bites))
+
+	# Fitting a twin-plate moves the bite point and raises the rating.
+	var stock: VehicleDef = GarageModel.build(Content.vehicle_by_id("hilux_an120"), GarageModel.empty_config())
+	var stock_body := VehicleBody.new()
+	stock_body.setup(stock, Content.surfaces)
+	var stock_cap: float = stock_body.clutch_capacity_base
+	var stock_bite: float = stock_body.clutch.bite_point
+	stock_body.free()
+
+	var twin: VehicleDef = GarageModel.build(Content.vehicle_by_id("hilux_an120"),
+		_fit({PartDef.Slot.CLUTCH: "hilux_an120_clutch_twin"}))
+	var twin_body := VehicleBody.new()
+	twin_body.setup(twin, Content.surfaces)
+	_check("L4. a twin-plate clutch raises the torque rating",
+		twin_body.clutch_capacity_base > stock_cap * 1.3,
+		"%s vs %s Nm" % [_f(twin_body.clutch_capacity_base, 0), _f(stock_cap, 0)])
+	_check("L4. a twin-plate clutch bites lower",
+		twin_body.clutch.bite_point < stock_bite,
+		"%.2f vs %.2f" % [twin_body.clutch.bite_point, stock_bite])
+
+	# A damaged clutch cannot hold the same torque: condition is read, not printed.
+	var worn: VehicleDef = GarageModel.build(Content.vehicle_by_id("hilux_an120"), GarageModel.empty_config())
+	var conditions: Dictionary = {}
+	for slot: Variant in worn.parts.keys():
+		var part: PartDef = worn.parts[slot] as PartDef
+		if part != null and part.slot == PartDef.Slot.CLUTCH:
+			conditions[part.id] = PartDef.Condition.DAMAGED
+	worn.part_conditions = conditions
+	var worn_body := VehicleBody.new()
+	worn_body.setup(worn, Content.surfaces)
+	_check("L4. a damaged clutch holds less torque",
+		worn_body.clutch_capacity_base < stock_cap * 0.85,
+		"%s vs %s Nm" % [_f(worn_body.clutch_capacity_base, 0), _f(stock_cap, 0)])
+	worn_body.free()
+
+	# Thermal fade: a hot clutch is weaker, but never useless.
+	twin_body.clutch_heat = 0.0
+	var cold: float = twin_body.clutch_fade()
+	twin_body.clutch_heat = 1.0
+	var hot: float = twin_body.clutch_fade()
+	_check("L4. a cold clutch does not fade", is_equal_approx(cold, 1.0), "%.2f" % cold)
+	_check("L4. a hot clutch loses capacity but still bites",
+		hot > 0.6 and hot < cold, "%.2f vs %.2f" % [hot, cold])
+	twin_body.free()
+
+# --- L5: the stall, on real physics ------------------------------------------
+
+## An infinite floor the vehicle can actually rest on.
+func _flat_floor() -> StaticBody2D:
+	var floor_body := StaticBody2D.new()
+	floor_body.name = "L5Floor"
+	floor_body.collision_layer = 2
+	floor_body.collision_mask = 0
+	var shape := CollisionShape2D.new()
+	var plane := WorldBoundaryShape2D.new()
+	plane.normal = Vector2(0, -1)
+	plane.distance = 0.0
+	shape.shape = plane
+	floor_body.add_child(shape)
+	add_child(floor_body)
+	return floor_body
+
+func _spawn_on_floor(def: VehicleDef, gear: int) -> VehicleBody:
+	var body := VehicleBody.new()
+	body.name = "L5Vehicle"
+	add_child(body)
+	body.setup(def, Content.surfaces)
+	body.configure_driver(false)
+	body.global_transform = Transform2D(0.0, Vector2(0.0, -0.9 * Units.PPM))
+	body.set_gear(gear)
+	body.set_input_state(_clutch_state(1.0, 0.0))
+	return body
+
+## `pedal` 1.0 = clutch on the floor, 0.0 = released.
+func _clutch_state(pedal: float, throttle: float) -> VehicleInputState:
+	var s := VehicleInputState.new()
+	s.clutch = pedal
+	s.throttle = throttle
+	return s
+
+## Advance the real physics loop for `seconds`, calling `tick` with the elapsed time.
+func _run_physics(seconds: float, tick: Callable) -> void:
+	var elapsed: float = 0.0
+	var wall_start: int = Time.get_ticks_msec()
+	while elapsed < seconds:
+		await get_tree().physics_frame
+		elapsed += 1.0 / float(Engine.physics_ticks_per_second)
+		tick.call(elapsed)
+		if Time.get_ticks_msec() - wall_start > 25000:
+			return
+
+func _test_l5_stall() -> void:
+	_section("L5. Stalls come from the driveline (real RigidBody2D on a floor)")
+	var def: VehicleDef = GarageModel.build(Content.vehicle_by_id("hilux_an120"), GarageModel.empty_config())
+	_flat_floor()
+
+	# --- Scenario 2: dump the clutch at idle in first gear.
+	var held := _clutch_state(1.0, 0.0)
+	var dumped: VehicleBody = _spawn_on_floor(def, 1)
+	await _run_physics(0.5, func(_t: float) -> void: dumped.set_input_state(held))
+	var idle_rpm: float = dumped.engine.rpm
+	_check("L5. the engine idles with the clutch held", idle_rpm > 500.0 and dumped.engine.running,
+		"%.0f rpm" % idle_rpm)
+
+	var dump_result: Dictionary = {"stalled": false, "at": 0.0, "drive": 0.0}
+	var released := _clutch_state(0.0, 0.0)
+	await _run_physics(1.2, func(t: float) -> void:
+		dumped.set_input_state(released)
+		if not dumped.engine.running:
+			if not bool(dump_result["stalled"]):
+				dump_result["stalled"] = true
+				dump_result["at"] = t)
+	_check("L5. dumping the clutch at idle stalls the engine", bool(dump_result["stalled"]),
+		"running=%s rpm=%.0f" % [str(dumped.engine.running), dumped.engine.rpm])
+	_check("L5. the stall is immediate, not a slow death",
+		bool(dump_result["stalled"]) and float(dump_result["at"]) < 0.7,
+		"stalled after %s s" % _f(float(dump_result["at"]), 2))
+	_check("L5. a stalled engine has no torque",
+		not dumped.engine.running and is_zero_approx(dumped.engine.output_torque()),
+		"torque %.1f Nm" % dumped.engine.output_torque())
+	_check("L5. a stalled engine does not drive the car",
+		absf(dumped.forward_speed) < 2.0,
+		"%s m/s after the stall" % _f(dumped.forward_speed, 2))
+
+	# --- Restart is conditional.
+	var refused_restart: bool = not dumped.restart_engine()
+	_check("L5. restarting in gear with the pedal out is refused",
+		refused_restart and not dumped.engine.running, "running=%s" % str(dumped.engine.running))
+	await _run_physics(0.12, func(_t: float) -> void: dumped.set_input_state(held))
+	var started: bool = dumped.restart_engine()
+	await _run_physics(0.4, func(_t: float) -> void: dumped.set_input_state(held))
+	_check("L5. the engine restarts with the clutch pressed",
+		started and dumped.engine.running, "running=%s rpm=%.0f" % [
+			str(dumped.engine.running), dumped.engine.rpm])
+	dumped.queue_free()
+	await get_tree().process_frame
+
+	# --- Scenario 1: a proper launch with a progressive pedal.
+	var launched: VehicleBody = _spawn_on_floor(def, 1)
+	await _run_physics(0.5, func(_t: float) -> void: launched.set_input_state(held))
+	var launch_result: Dictionary = {"failed": false, "heat": 0.0}
+	await _run_physics(2.2, func(t: float) -> void:
+		# Pedal out over 1.1 s: the driver feeds it rather than dropping it.
+		launched.set_input_state(_clutch_state(1.0 - clampf(t / 1.1, 0.0, 1.0), 0.55))
+		launch_result["heat"] = maxf(float(launch_result["heat"]), launched.clutch_heat)
+		if not launched.engine.running:
+			launch_result["failed"] = true)
+	_check("L5. a progressive launch does not stall",
+		not bool(launch_result["failed"]) and launched.engine.running,
+		"running=%s rpm=%.0f" % [str(launched.engine.running), launched.engine.rpm])
+	_check("L5. the car actually moves off the line",
+		launched.forward_speed > 0.8, "%s m/s" % _f(launched.forward_speed, 2))
+	_check("L5. slipping the clutch puts heat into it", float(launch_result["heat"]) > 0.0,
+		"peak fade %.3f" % float(launch_result["heat"]))
+	launched.queue_free()
+	await get_tree().process_frame
+
+	# --- Scenario 3: pulling away in a high gear with no throttle.
+	var bogged: VehicleBody = _spawn_on_floor(def, 4)
+	await _run_physics(0.5, func(_t: float) -> void: bogged.set_input_state(held))
+	var high_result: Dictionary = {"stalled": false}
+	await _run_physics(1.4, func(t: float) -> void:
+		bogged.set_input_state(_clutch_state(1.0 - clampf(t / 0.45, 0.0, 1.0), 0.0))
+		if not bogged.engine.running:
+			high_result["stalled"] = true)
+	_check("L5. pulling away in 4th at idle stalls", bool(high_result["stalled"]),
+		"running=%s rpm=%.0f" % [str(bogged.engine.running), bogged.engine.rpm])
+	bogged.queue_free()
+	await get_tree().process_frame
+
+# --- L6: modes, interlocks and the defects this pass closed -------------------
+
+## Every check in this section exists because the 3.1 build got it wrong and the
+## suite could not see it: an automatic that demanded a clutch, an assisted car that
+## stalled, reverse that ignored the pedal, a parking pawl at 80 km/h, a rail painted
+## with a constant, and a lever that lost its finger to a palm.
+func _test_l6_modes_and_interlocks() -> void:
+	_section("L6. Modes, interlocks and the bugs they replaced")
+	var hilux_base: VehicleDef = Content.vehicle_by_id("hilux_an120")
+
+	# --- an automatic conversion is a real automatic -------------------------
+	var auto_def: VehicleDef = GarageModel.build(hilux_base,
+		_fit({PartDef.Slot.GEARBOX: "hilux_an120_gbox_auto"}))
+	var auto_profile: TransmissionProfile = auto_def.transmissions[0]
+	_check("L6. the automatic conversion builds an automatic profile",
+		auto_profile.is_automatic() and not auto_profile.requires_clutch,
+		"kind %d, requires_clutch %s" % [int(auto_profile.kind), str(auto_profile.requires_clutch)])
+	var factory: TransmissionProfile = hilux_base.transmission_by_id("hilux_a6")
+	_check("L6. the conversion carries the documented automatic ratios",
+		factory != null and auto_profile.ratios == factory.ratios,
+		"%s vs %s" % [str(auto_profile.ratios), str(factory.ratios if factory != null else PackedFloat32Array())])
+
+	_flat_floor()
+	var auto_body := VehicleBody.new()
+	auto_body.name = "L6Auto"
+	add_child(auto_body)
+	auto_body.setup(auto_def, Content.surfaces)
+	auto_body.configure_driver(false)
+	auto_body.global_transform = Transform2D(0.0, Vector2(0.0, -0.9 * Units.PPM))
+	_check("L6. an automatic needs no clutch pedal",
+		not auto_body.manual_clutch_enabled and not auto_body.clutch.manual_mode,
+		"manual=%s mode=%s" % [str(auto_body.manual_clutch_enabled), str(auto_body.clutch.manual_mode)])
+
+	var auto_controls := TouchControls.new()
+	add_child(auto_controls)
+	auto_controls.setup(auto_profile, auto_body)
+	await get_tree().process_frame
+	_check("L6. an automatic car is given no clutch control",
+		not auto_controls.widgets.has("clutch"),
+		"widgets %s" % str(auto_controls.widgets.keys()))
+	auto_controls.queue_free()
+
+	# --- D at rest must not drive off ---------------------------------------
+	auto_body.gearbox.set_range("D")
+	await _run_physics(2.0, func(_t: float) -> void: pass)
+	_check("L6. an automatic sits still in D at idle",
+		absf(auto_body.forward_speed) < 0.6 and auto_body.engine.running,
+		"speed %s m/s, running %s" % [_f(absf(auto_body.forward_speed), 2), str(auto_body.engine.running)])
+
+	# --- the parking pawl cannot engage at speed ----------------------------
+	auto_body.gearbox.vehicle_speed = 12.0
+	var parked: bool = auto_body.gearbox.set_range("P")
+	_check("L6. the parking pawl refuses while rolling",
+		not parked and auto_body.gearbox.range_id == "D",
+		"range %s refused=%s" % [auto_body.gearbox.range_id, str(not parked)])
+	auto_body.queue_free()
+
+	# --- every engine holds its own idle in neutral -------------------------
+	# The idle governor is the only thing between a bogged engine and a stall, so it
+	# must be strong enough to hold idle and no stronger than the engine's own torque.
+	var idle_report: Array[String] = []
+	var idle_ok: bool = true
+	for id: String in ["jimny_jb74", "lc79"]:
+		var idle_def: VehicleDef = GarageModel.build(Content.vehicle_by_id(id), GarageModel.empty_config())
+		var idler: VehicleBody = _spawn_on_floor(idle_def, 0)
+		idler.set_input_state(_clutch_state(0.0, 0.0))
+		await _run_physics(2.5, func(_t: float) -> void: pass)
+		var idle_target: float = idle_def.engine.idle_rpm
+		var good: bool = idler.engine.running and idler.engine.rpm > idle_target * 0.55
+		idle_report.append("%s %.0f/%.0f" % [id, idler.engine.rpm, idle_target])
+		idle_ok = idle_ok and good
+		idler.queue_free()
+	_check("L6. every engine holds idle in neutral", idle_ok, _join(idle_report))
+
+	# --- assisted manual: the clutch is the car's job -----------------------
+	var assist_def: VehicleDef = GarageModel.build(Content.vehicle_by_id("jimny_jb74"), GarageModel.empty_config())
+	var assist: VehicleBody = _spawn_on_floor(assist_def, 1)
+	assist.configure_driver(true)
+	assist.set_input_state(_clutch_state(0.0, 0.0))
+	await _run_physics(2.0, func(_t: float) -> void: pass)
+	_check("L6. an assisted car does not stall on a dumped clutch",
+		assist.engine.running and assist.engine.rpm > 250.0,
+		"running %s rpm %.0f" % [str(assist.engine.running), assist.engine.rpm])
+	assist.queue_free()
+
+	# --- reverse obeys the same pedal gate as every other gear --------------
+	var manual_def: VehicleDef = GarageModel.build(Content.vehicle_by_id("jimny_jb74"), GarageModel.empty_config())
+	var manual: VehicleBody = _spawn_on_floor(manual_def, 0)
+	manual.set_input_state(_clutch_state(0.0, 0.0))
+	var reverse_ok: bool = manual.select_gear(-1, false)
+	_check("L6. reverse is refused with the pedal out",
+		not reverse_ok and manual.gearbox.gear == 0
+			and manual.gearbox.reject_reason == GearboxState.REJECT_CLUTCH,
+		"gear %d reason '%s'" % [manual.gearbox.gear, manual.gearbox.reject_reason])
+
+	# --- a pedal above the bite point transmits nothing ---------------------
+	var creep: VehicleBody = _spawn_on_floor(manual_def, 1)
+	var bite: float = creep.clutch.bite_point
+	creep.set_input_state(_clutch_state(clampf(bite + 0.03, 0.0, 0.97), 0.0))
+	await _run_physics(1.5, func(_t: float) -> void: pass)
+	_check("L6. holding the pedal above the bite point cannot stall or move the car",
+		creep.engine.running and absf(creep.forward_speed) < 0.4,
+		"running %s speed %s m/s" % [str(creep.engine.running), _f(absf(creep.forward_speed), 2)])
+	creep.queue_free()
+	manual.queue_free()
+
+	# --- the cover is the car's, not a constant ----------------------------
+	var clamps: Array[float] = []
+	var fades: Array[float] = []
+	var heats: Array[float] = []
+	for id: String in DOC_VEHICLE_IDS:
+		var d: VehicleDef = Content.vehicle_by_id(id)
+		clamps.append(d.clutch_clamp_rate)
+		fades.append(d.clutch_fade_limit)
+		heats.append(d.clutch_heat_capacity)
+	_check("L6. every car clamps its clutch at its own rate",
+		clamps.size() == 5 and clamps.max() - clamps.min() > 1.0,
+		"%s" % str(clamps))
+	_check("L6. every car fades and absorbs heat differently",
+		fades.max() - fades.min() > 0.05 and heats.max() - heats.min() > 2.0,
+		"fade %s heat %s" % [str(fades), str(heats)])
+
+	# --- the rail paints the fitted window, not a constant ------------------
+	var twin_def: VehicleDef = GarageModel.build(hilux_base,
+		_fit({PartDef.Slot.CLUTCH: "hilux_an120_clutch_twin"}))
+	var twin_body := VehicleBody.new()
+	add_child(twin_body)
+	twin_body.setup(twin_def, Content.surfaces)
+	var twin_controls := TouchControls.new()
+	add_child(twin_controls)
+	twin_controls.setup(twin_def.transmissions[0], twin_body)
+	await get_tree().process_frame
+	var twin_slider: TouchSlider = twin_controls.widgets.get("clutch", null) as TouchSlider
+	var band: float = 0.0
+	if twin_slider != null:
+		band = twin_slider.bite_band.y - twin_slider.bite_band.x
+	_check("L6. the rail paints the fitted engagement window",
+		twin_slider != null and absf(band - twin_body.clutch.engagement_window) < 0.02,
+		"band %.2f vs window %.2f" % [band, twin_body.clutch.engagement_window])
+
+	# --- a second finger cannot steal the lever ----------------------------
+	twin_controls.open_panel()
+	await get_tree().process_frame
+	var lever: GearPanel = twin_controls.panel
+	if lever != null and lever.profile != null:
+		var grab: Vector2 = lever.size * 0.5 + Vector2(0.0, lever.size.y * 0.16)
+		lever.press_at(grab, 0)
+		var held_by_zero: bool = lever.is_dragging() and int(lever.get("_finger")) == 0
+		lever.press_at(grab + Vector2(8.0, 8.0), 1)
+		lever.release_finger(1)
+		_check("L6. a second finger cannot steal the lever",
+			held_by_zero and lever.is_dragging() and int(lever.get("_finger")) == 0,
+			"dragging %s finger %d" % [str(lever.is_dragging()), int(lever.get("_finger"))])
+		lever.release_finger(0)
+		_check("L6. the owning finger can still release the lever",
+			not lever.is_dragging(), "dragging %s" % str(lever.is_dragging()))
+	else:
+		_check("L6. the lever panel exists for a manual car", false, "panel missing")
+
+	twin_controls.queue_free()
+	twin_body.queue_free()
+	await get_tree().process_frame

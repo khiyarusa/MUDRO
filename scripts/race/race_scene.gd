@@ -28,6 +28,8 @@ var top_speed: float = 0.0
 var _shake: float = 0.0
 var _autodrive: bool = false
 var _auto_shift_cd: float = 0.0
+var _auto_clutch_ramp: float = 0.0
+var _launch_hint_shown: bool = false
 var _log_slot: int = -1
 var _spawn_log: int = 0
 var _last_surface: String = ""
@@ -134,7 +136,10 @@ func _build_world() -> void:
 		vehicle.gearbox.reset(0)
 		vehicle.gearbox.request_gear(1, true)
 	else:
-		vehicle.gearbox.reset(1)
+		# A manual car is handed over in neutral with the pedal out. Spawning it in
+		# first with the clutch closed would stall the engine during the countdown,
+		# before the player has touched a single control.
+		vehicle.gearbox.reset(0)
 	camera.global_position = vehicle.global_position + Vector2(200, -80)
 
 	effects = RaceEffects.new()
@@ -309,6 +314,7 @@ func _process(delta: float) -> void:
 				_log_autodrive()
 			else:
 				_read_input()
+			_check_launch_hint()
 			_check_progress()
 		"paused", "finished":
 			pass
@@ -368,11 +374,24 @@ func _read_input() -> void:
 
 func _drive_auto(delta: float) -> void:
 	_auto_shift_cd -= delta
-	vehicle.set_inputs(1.0, 0.0, 0.0, 1.0)
 	if vehicle.engine == null:
 		return
-	var redline: float = vehicle.definition.engine.redline_rpm
-	if _auto_shift_cd <= 0.0 and vehicle.engine.rpm > redline * 0.82 and vehicle.gearbox.gear < vehicle.gearbox.gear_count():
+	if vehicle.manual_clutch_enabled:
+		# The probe drives like a competent human: clutch in, first gear, feed the
+		# pedal out over ~0.9 s, then stay on the throttle. That exercises the real
+		# launch path instead of bypassing it.
+		if vehicle.gearbox.gear == 0:
+			vehicle.set_inputs(0.0, 0.0, 0.0, 0.0)
+			if vehicle.engine.rpm > vehicle.definition.engine.idle_rpm * 0.75:
+				vehicle.set_gear(1)
+			return
+		_auto_clutch_ramp += delta
+		vehicle.set_inputs(1.0, 0.0, 0.0, clampf(_auto_clutch_ramp / 0.9, 0.0, 1.0))
+	else:
+		vehicle.set_inputs(1.0, 0.0, 0.0, 1.0)
+	if _auto_shift_cd <= 0.0 and vehicle.engine.rpm > vehicle.definition.engine.redline_rpm * 0.82 and vehicle.gearbox.gear < vehicle.gearbox.gear_count():
+		# Force the shift: a probe has no third thumb for the clutch, and the point of
+		# the run is the driveline, not the lever.
 		vehicle.set_gear(vehicle.gearbox.gear + 1)
 		_auto_shift_cd = 0.5
 
@@ -427,6 +446,11 @@ func _request_range(range_id: String) -> void:
 		SettingsService.vibrate(18)
 		if before == vehicle.gearbox.gear:
 			controls.on_shift_result(true)
+	else:
+		# A refused range is not a silent one: P at speed and R while rolling are
+		# both refused, and the player needs to know the lever did nothing.
+		hud.toast(_reject_text(vehicle.gearbox.reject_reason))
+		SettingsService.vibrate(40)
 
 func _reject_text(reason: String) -> String:
 	match reason:
@@ -438,6 +462,8 @@ func _reject_text(reason: String) -> String:
 			return Loc.t("gearbox_reverse_blocked")
 		GearboxState.REJECT_SHIFTING:
 			return Loc.t("gearbox_shifting")
+		GearboxState.REJECT_PARK:
+			return Loc.t("range_park_blocked")
 		_:
 			return Loc.t("gearbox_refused")
 
@@ -473,8 +499,15 @@ func _toggle_winch() -> void:
 	SettingsService.vibrate(16)
 
 func _restart_engine() -> void:
-	vehicle.restart_engine()
+	if vehicle.engine != null and vehicle.engine.running:
+		hud.toast(Loc.t("engine_already_running"))
+		return
+	if not vehicle.restart_engine():
+		hud.toast(Loc.t("engine_start_refused"))
+		AudioDirector.play("ui_back", -12.0)
+		return
 	AudioDirector.play("engine_start", -6.0)
+	SettingsService.vibrate(20)
 
 func _on_shift_rejected(reason: String, _gear: int) -> void:
 	if reason == GearboxState.REJECT_CLUTCH:
@@ -505,6 +538,15 @@ func _update_live_ui() -> void:
 			start_widget.visible = stalled
 			if not stalled:
 				start_widget.reset()
+
+func _check_launch_hint() -> void:
+	# A manual car starts in neutral with the pedal out. Say so once, in the player's
+	# language, instead of leaving them sitting on the line wondering why nothing moves.
+	if _launch_hint_shown or vehicle == null or not vehicle.manual_clutch_enabled:
+		return
+	if vehicle.gearbox.gear == 0 and vehicle.speed_kmh() < 2.0 and elapsed > 1.6:
+		_launch_hint_shown = true
+		hud.toast(Loc.t("race_launch_hint"))
 
 func _check_progress() -> void:
 	var x: float = vehicle.global_position.x
@@ -648,7 +690,8 @@ func _on_gear_changed(_gear: int) -> void:
 	AudioDirector.play("shift", -9.0, randf_range(0.96, 1.05))
 
 func _on_stalled() -> void:
-	hud.toast(Loc.t("race_stalled_hint"))
+	# The persistent hint under the speed cluster already says this while the engine
+	# is dead; a toast on top of it printed the same sentence twice in one frame.
 	AudioDirector.play("engine_stall", -4.0)
 	SettingsService.vibrate(60)
 
@@ -742,6 +785,12 @@ func _on_layout_closed() -> void:
 		_layout_editor = null
 	if controls != null:
 		controls.rebuild()
+	# The editor is opened from the pause card, so closing it returns to the pause
+	# card. It used to call _resume() and drop the player back onto the track mid-run
+	# while they were still rearranging their thumbs.
+	if state == "paused":
+		hud.show_pause(true)
+		return
 	_resume()
 
 func _restart() -> void:

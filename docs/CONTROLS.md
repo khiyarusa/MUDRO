@@ -1,4 +1,10 @@
-# MUDRO — Mobile controls (2.0)
+# MUDRO — Mobile controls (2.0, revised for 3.1)
+
+> **3.1 changes the default and the clutch contract.** The shipped preset is `drive`:
+> the clutch alone on the left, a large accelerator and a smaller brake on the right.
+> A pedal that is hidden puts that car on the automatic clutch, because a gearbox that
+> requires a pedal is undrivable without one. The clutch is analog in *every* preset.
+> Where this document says "three presets", read "four: drive, buttons, slider, pedals".
 
 The 1.0 HUD drew touch buttons with `TouchScreenButton` and a runtime-generated
 circle texture. 2.0 replaces that with a single input layer that owns pointer

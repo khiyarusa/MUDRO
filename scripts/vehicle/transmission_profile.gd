@@ -96,11 +96,16 @@ func note(lang: String) -> String:
 
 # -------------------------------------------------------------- H-pattern ---
 
-## Number of vertical gate columns: one per pair of forward gears, plus a reverse
-## column when the car has reverse.
+## Number of vertical gate columns. A five-speed puts reverse on the bottom of the
+## last column, exactly like a real 5MT gate (1 3 5 / 2 4 R). An even gear count,
+## or a box without reverse, needs its own extra column.
 func gate_column_count() -> int:
 	var forward: int = int(ceil(float(maxi(gear_count(), 1)) / 2.0))
-	return forward + (1 if has_reverse else 0)
+	if not has_reverse:
+		return forward
+	if gear_count() % 2 == 1:
+		return forward
+	return forward + 1
 
 func gate_x(column: int) -> float:
 	var columns: int = maxi(gate_column_count(), 1)
